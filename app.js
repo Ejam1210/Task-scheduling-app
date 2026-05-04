@@ -26,7 +26,11 @@ const todaySummary = document.querySelector("#todaySummary");
 const todayLabel = document.querySelector("#todayLabel");
 const scheduleFilter = document.querySelector("#scheduleFilter");
 const scheduleGridRange = document.querySelector("#scheduleGridRange");
+const scheduleControls = document.querySelector(".schedule-controls");
 const scheduleViewButtons = document.querySelectorAll(".view-button");
+const gridZoomInButton = document.querySelector("#gridZoomIn");
+const gridZoomOutButton = document.querySelector("#gridZoomOut");
+const gridZoomLevel = document.querySelector("#gridZoomLevel");
 const taskDateInput = document.querySelector("#taskDate");
 const taskTypeInput = document.querySelector("#taskType");
 const customTaskTypeInput = document.querySelector("#customTaskType");
@@ -43,6 +47,8 @@ let weeklyGoals = loadWeeklyGoals();
 let currentTheme = localStorage.getItem(THEME_STORAGE_KEY) ?? "light";
 let scheduleView = "list";
 let scheduleGridZoom = 1;
+let pinchStartDistance = 0;
+let pinchStartZoom = 1;
 
 const TASK_TYPE_STYLES = {
   Focus: { color: "#2d6f9f", bg: "rgba(45, 111, 159, 0.14)" },
@@ -98,6 +104,11 @@ scheduleFilter.addEventListener("change", render);
 scheduleGridRange.addEventListener("change", render);
 statsRange.addEventListener("change", render);
 scheduleGrid.addEventListener("wheel", handleScheduleGridZoom, { passive: false });
+scheduleGrid.addEventListener("touchstart", handleGridTouchStart, { passive: false });
+scheduleGrid.addEventListener("touchmove", handleGridTouchMove, { passive: false });
+scheduleGrid.addEventListener("touchend", resetGridPinch);
+gridZoomInButton.addEventListener("click", () => setScheduleGridZoom(scheduleGridZoom + 0.15));
+gridZoomOutButton.addEventListener("click", () => setScheduleGridZoom(scheduleGridZoom - 0.15));
 taskTypeInput.addEventListener("change", toggleCustomTypeInput);
 menuButton.addEventListener("click", openMenu);
 closeMenuButton.addEventListener("click", closeMenu);
@@ -205,6 +216,8 @@ function render() {
   scheduleViewButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.view === scheduleView);
   });
+  scheduleControls.classList.toggle("grid-mode", scheduleView === "grid");
+  updateScheduleGridZoomControls();
 
   taskList.innerHTML = visibleOccurrences.map(createTaskCard).join("");
   scheduleGrid.innerHTML = createScheduleGrid(gridOccurrences);
@@ -745,7 +758,35 @@ function handleScheduleGridZoom(event) {
   if (scheduleView !== "grid" || !event.ctrlKey) return;
 
   event.preventDefault();
-  const nextZoom = clamp(scheduleGridZoom + (event.deltaY < 0 ? 0.1 : -0.1), 0.75, 2.2);
+  setScheduleGridZoom(scheduleGridZoom + (event.deltaY < 0 ? 0.1 : -0.1));
+}
+
+function handleGridTouchStart(event) {
+  if (event.touches.length !== 2) return;
+
+  pinchStartDistance = getTouchDistance(event.touches);
+  pinchStartZoom = scheduleGridZoom;
+}
+
+function handleGridTouchMove(event) {
+  if (scheduleView !== "grid" || event.touches.length !== 2 || pinchStartDistance === 0) return;
+
+  event.preventDefault();
+  setScheduleGridZoom(pinchStartZoom * (getTouchDistance(event.touches) / pinchStartDistance));
+}
+
+function resetGridPinch() {
+  pinchStartDistance = 0;
+  pinchStartZoom = scheduleGridZoom;
+}
+
+function getTouchDistance(touches) {
+  const [firstTouch, secondTouch] = touches;
+  return Math.hypot(firstTouch.clientX - secondTouch.clientX, firstTouch.clientY - secondTouch.clientY);
+}
+
+function setScheduleGridZoom(value) {
+  const nextZoom = clamp(value, 0.75, 2.2);
   if (nextZoom === scheduleGridZoom) return;
 
   scheduleGridZoom = nextZoom;
@@ -756,6 +797,13 @@ function updateScheduleGridZoom() {
   document.querySelectorAll(".day-timeline").forEach((timeline) => {
     timeline.style.setProperty("--timeline-height", `${getTimelineHeight(Number(timeline.dataset.totalMinutes))}px`);
   });
+  updateScheduleGridZoomControls();
+}
+
+function updateScheduleGridZoomControls() {
+  gridZoomLevel.textContent = `${Math.round(scheduleGridZoom * 100)}%`;
+  gridZoomOutButton.disabled = scheduleGridZoom <= 0.75;
+  gridZoomInButton.disabled = scheduleGridZoom >= 2.2;
 }
 
 function getTimelineHeight(totalMinutes) {
