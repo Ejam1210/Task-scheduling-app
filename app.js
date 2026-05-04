@@ -987,8 +987,8 @@ function createWeeklyReport(completedHistory) {
       </div>
       <div class="weekly-metrics">
         ${createWeeklyMetric("Points", "points", report.current.points, report.previous.points, formatPoints)}
-        ${createWeeklyMetric("Hours", "hours", report.current.hours, report.previous.hours, formatHours)}
-        ${createWeeklyMetric("Tasks", "tasks", report.current.tasks, report.previous.tasks, String)}
+        ${createWeeklyMetric("Hours", null, report.current.hours, report.previous.hours, formatHours)}
+        ${createWeeklyMetric("Tasks", null, report.current.tasks, report.previous.tasks, String)}
       </div>
       <p class="weekly-report-summary">${createWeeklyReportSummary(report)}</p>
     </section>
@@ -1027,7 +1027,7 @@ function buildWeekMetrics(completedHistory, start, end) {
 
 function createWeeklyMetric(label, goalKey, current, previous, formatter) {
   const change = calculatePercentChange(current, previous);
-  const goal = weeklyGoals[goalKey];
+  const goal = goalKey ? weeklyGoals[goalKey] : 0;
   const bonusPoints = calculateMetricBonusPoints(change, goal);
   const direction = current > previous ? "up" : current < previous ? "down" : "flat";
   const directionLabel = direction === "up" ? "increase" : direction === "down" ? "decrease" : "no change";
@@ -1052,10 +1052,9 @@ function createGoalResultText(goal, change, bonusPoints) {
 }
 
 function calculateWeeklyBonusPoints(report) {
-  return (
-    calculateMetricBonusPoints(calculatePercentChange(report.current.points, report.previous.points), weeklyGoals.points) +
-    calculateMetricBonusPoints(calculatePercentChange(report.current.hours, report.previous.hours), weeklyGoals.hours) +
-    calculateMetricBonusPoints(calculatePercentChange(report.current.tasks, report.previous.tasks), weeklyGoals.tasks)
+  return calculateMetricBonusPoints(
+    calculatePercentChange(report.current.points, report.previous.points),
+    weeklyGoals.points,
   );
 }
 
@@ -1357,8 +1356,6 @@ function loadWeeklyGoals() {
 function normalizeWeeklyGoals(savedGoals) {
   return {
     points: normalizeGoalValue(savedGoals.points),
-    hours: normalizeGoalValue(savedGoals.hours),
-    tasks: normalizeGoalValue(savedGoals.tasks),
   };
 }
 
