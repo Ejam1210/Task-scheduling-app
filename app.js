@@ -3,6 +3,7 @@ const THEME_STORAGE_KEY = "daily-task-scheduler.theme";
 const ACCENT_STORAGE_KEY = "daily-task-scheduler.accent";
 const TYPE_STORAGE_KEY = "daily-task-scheduler.custom-types";
 const GOAL_STORAGE_KEY = "daily-task-scheduler.weekly-goals";
+const OVERLAP_DISMISS_STORAGE_KEY = "daily-task-scheduler.dismissed-overlap";
 const SCHEDULE_DAYS_TO_SHOW = 30;
 const GRID_MINUTE_HEIGHT = 2.05;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -52,6 +53,8 @@ let scheduleView = "list";
 let scheduleGridZoom = 1;
 let pinchStartDistance = 0;
 let pinchStartZoom = 1;
+let currentOverlapSignature = "";
+let dismissedOverlapSignature = localStorage.getItem(OVERLAP_DISMISS_STORAGE_KEY) ?? "";
 
 const TASK_TYPE_STYLES = {
   Focus: { color: "#2d6f9f", bg: "rgba(45, 111, 159, 0.14)" },
@@ -225,6 +228,23 @@ taskList.addEventListener("click", (event) => {
   }
 
   saveTasks();
+  render();
+});
+
+overlapAlert.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-overlap-action]");
+  if (!button) return;
+
+  if (button.dataset.overlapAction === "dismiss") {
+    dismissedOverlapSignature = currentOverlapSignature;
+    localStorage.setItem(OVERLAP_DISMISS_STORAGE_KEY, dismissedOverlapSignature);
+  }
+
+  if (button.dataset.overlapAction === "expand") {
+    dismissedOverlapSignature = "";
+    localStorage.removeItem(OVERLAP_DISMISS_STORAGE_KEY);
+  }
+
   render();
 });
 
@@ -492,8 +512,21 @@ function renderOverlapAlert(occurrences) {
   const overlaps = findOverlaps(occurrences.filter((task) => !task.done));
 
   if (overlaps.length === 0) {
-    overlapAlert.classList.remove("visible");
+    currentOverlapSignature = "";
+    overlapAlert.classList.remove("visible", "collapsed");
     overlapAlert.innerHTML = "";
+    return;
+  }
+
+  currentOverlapSignature = createOverlapSignature(overlaps);
+
+  if (dismissedOverlapSignature === currentOverlapSignature) {
+    overlapAlert.classList.add("visible", "collapsed");
+    overlapAlert.innerHTML = `
+      <button class="overlap-icon-button" data-overlap-action="expand" type="button" aria-label="Show overlap warning">
+        !
+      </button>
+    `;
     return;
   }
 
@@ -513,12 +546,31 @@ function renderOverlapAlert(occurrences) {
   const extraCount = overlaps.length > 3 ? `<p>And ${overlaps.length - 3} more overlap${overlaps.length - 3 === 1 ? "" : "s"}.</p>` : "";
 
   overlapAlert.classList.add("visible");
+  overlapAlert.classList.remove("collapsed");
   overlapAlert.innerHTML = `
-    <strong>Overlap warning</strong>
+    <div class="overlap-alert-header">
+      <strong>Overlap warning</strong>
+      <button class="overlap-dismiss-button" data-overlap-action="dismiss" type="button">Dismiss</button>
+    </div>
     <p>${overlaps.length} overlap${overlaps.length === 1 ? "" : "s"} found in this schedule view.</p>
     <ul>${previewItems}</ul>
     ${extraCount}
   `;
+}
+
+function createOverlapSignature(overlaps) {
+  return overlaps
+    .map((overlap) => {
+      const firstKey = createOverlapTaskKey(overlap.first);
+      const secondKey = createOverlapTaskKey(overlap.second);
+      return [firstKey, secondKey].sort().join("~");
+    })
+    .sort()
+    .join("|");
+}
+
+function createOverlapTaskKey(task) {
+  return `${task.id}:${task.occurrenceDate}:${task.time}:${task.duration}`;
 }
 
 function getGridOccurrences(occurrences) {
