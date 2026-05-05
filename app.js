@@ -7,6 +7,7 @@ const OVERLAP_DISMISS_STORAGE_KEY = "daily-task-scheduler.dismissed-overlap";
 const TIMER_STORAGE_KEY = "daily-task-scheduler.active-timer";
 const FEATURE_STORAGE_KEY = "daily-task-scheduler.feature-settings";
 const TEMPLATE_STORAGE_KEY = "daily-task-scheduler.task-templates";
+const MISSED_COLLAPSE_STORAGE_KEY = "daily-task-scheduler.missed-collapsed";
 const SCHEDULE_DAYS_TO_SHOW = 30;
 const GRID_MINUTE_HEIGHT = 2.05;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -26,6 +27,7 @@ const completedPoints = document.querySelector("#completedPoints");
 const dailyDashboard = document.querySelector("#dailyDashboard");
 const missedTasksPanel = document.querySelector("#missedTasksPanel");
 const missedTaskList = document.querySelector("#missedTaskList");
+const collapseMissedButton = document.querySelector("#collapseMissedButton");
 const weeklyReport = document.querySelector("#weeklyReport");
 const statsGrid = document.querySelector("#statsGrid");
 const statsRange = document.querySelector("#statsRange");
@@ -77,6 +79,7 @@ let dismissedOverlapSignature = localStorage.getItem(OVERLAP_DISMISS_STORAGE_KEY
 let activeTimer = loadActiveTimer();
 let timerInterval = null;
 let currentTypeStreaks = new Map();
+let missedTasksCollapsed = localStorage.getItem(MISSED_COLLAPSE_STORAGE_KEY) === "true";
 
 const TASK_TYPE_STYLES = {
   Focus: { color: "#2d6f9f", bg: "rgba(45, 111, 159, 0.14)" },
@@ -368,8 +371,19 @@ missedTaskList.addEventListener("click", (event) => {
     tasks = tasks.map((task) => skipTaskOccurrence(task, taskId, occurrenceDate));
   }
 
+  if (action === "delete") {
+    tasks = deleteMissedTask(tasks, taskId, occurrenceDate);
+    clearActiveTimerFor(taskId, occurrenceDate);
+  }
+
   saveTasks();
   render();
+});
+
+collapseMissedButton.addEventListener("click", () => {
+  missedTasksCollapsed = !missedTasksCollapsed;
+  localStorage.setItem(MISSED_COLLAPSE_STORAGE_KEY, String(missedTasksCollapsed));
+  renderMissedTasks();
 });
 
 focusOverlay.addEventListener("click", (event) => {
@@ -668,7 +682,13 @@ function renderMissedTasks() {
 
   const missedTasks = buildMissedOccurrences();
   missedTasksPanel.classList.toggle("hidden", missedTasks.length === 0);
-  missedTaskList.innerHTML = missedTasks.slice(0, 8).map(createMissedTaskCard).join("");
+  missedTasksPanel.classList.toggle("collapsed", missedTasksCollapsed);
+  collapseMissedButton.textContent = missedTasksCollapsed ? `Show ${missedTasks.length}` : "Collapse";
+  collapseMissedButton.setAttribute(
+    "aria-expanded",
+    missedTasksCollapsed ? "false" : "true",
+  );
+  missedTaskList.innerHTML = missedTasksCollapsed ? "" : missedTasks.slice(0, 8).map(createMissedTaskCard).join("");
 }
 
 function createMissedTaskCard(task) {
@@ -689,6 +709,7 @@ function createMissedTaskCard(task) {
         <button class="secondary-button" data-missed-action="today" type="button">Today</button>
         <button class="secondary-button" data-missed-action="tomorrow" type="button">Tomorrow</button>
         <button class="secondary-button danger-button" data-missed-action="skip" type="button">Skip</button>
+        <button class="secondary-button ghost-button" data-missed-action="delete" type="button">Delete</button>
       </div>
     </article>
   `;
@@ -959,14 +980,6 @@ function getGridDateRange() {
 
 function matchesGridStatusFilter(task) {
   if (task.skipped) return false;
-
-  const filter = scheduleFilter.value;
-  const taskDateTime = new Date(`${task.occurrenceDate}T${task.time}`);
-  const now = new Date();
-
-  if (filter === "upcoming") return !task.done && taskDateTime >= startOfToday(now);
-  if (filter === "done") return task.done;
-  if (filter === "today") return !task.done;
   return true;
 }
 
@@ -1847,6 +1860,17 @@ function skipTaskOccurrence(task, taskId, occurrenceDate) {
       ? skippedDates
       : [...skippedDates, occurrenceDate],
   };
+}
+
+function deleteMissedTask(currentTasks, taskId, occurrenceDate) {
+  const taskToDelete = currentTasks.find((task) => task.id === taskId);
+  if (!taskToDelete) return currentTasks;
+
+  if (!taskToDelete.repeats) {
+    return currentTasks.filter((task) => task.id !== taskId);
+  }
+
+  return currentTasks.map((task) => skipTaskOccurrence(task, taskId, occurrenceDate));
 }
 
 function isActiveTimerFor(task) {

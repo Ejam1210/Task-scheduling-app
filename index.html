@@ -225,11 +225,11 @@
               <button class="view-button active" data-view="list" type="button">List</button>
               <button class="view-button" data-view="grid" type="button">Grid</button>
             </div>
-            <select id="scheduleGridRange" class="grid-range-select" aria-label="Grid time range">
+            <select id="scheduleGridRange" class="grid-range-select view-only-grid" aria-label="Grid time range">
               <option value="week">This week</option>
               <option value="day">Today</option>
             </select>
-            <select id="scheduleFilter" aria-label="Filter schedule">
+            <select id="scheduleFilter" class="view-only-list" aria-label="Filter schedule">
               <option value="all">All tasks</option>
               <option value="today">Today</option>
               <option value="upcoming">Upcoming</option>
@@ -251,6 +251,7 @@
               <h3>Missed Tasks</h3>
               <p>Tasks from earlier days that still need a decision.</p>
             </div>
+            <button class="secondary-button compact-button" id="collapseMissedButton" type="button">Collapse</button>
           </div>
           <div class="missed-task-list" id="missedTaskList"></div>
         </section>

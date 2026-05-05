@@ -260,40 +260,40 @@ p {
 
 .bottom-tabbar {
   position: fixed;
-  right: 12px;
-  bottom: 12px;
-  left: 12px;
+  right: 10px;
+  bottom: 10px;
+  left: 10px;
   z-index: 18;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  width: min(640px, calc(100% - 24px));
+  gap: 5px;
+  width: min(580px, calc(100% - 20px));
   margin: 0 auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow);
-  padding: 8px;
+  padding: 6px;
 }
 
 .bottom-tabbar .tab-button {
   position: relative;
   display: grid;
-  grid-template-rows: 24px auto;
+  grid-template-rows: 21px auto;
   width: 100%;
-  min-height: 58px;
+  min-height: 50px;
   align-items: center;
   justify-content: center;
   justify-items: center;
   align-content: center;
-  gap: 3px;
+  gap: 2px;
   border: 0;
   border-radius: 7px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
   font-weight: 900;
-  padding: 7px 4px;
+  padding: 6px 3px;
 }
 
 .bottom-tabbar .tab-button.active {
@@ -302,8 +302,8 @@ p {
 }
 
 .bottom-tabbar svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   display: block;
   justify-self: center;
   fill: none;
@@ -317,20 +317,20 @@ p {
   display: block;
   justify-self: center;
   width: 100%;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   line-height: 1;
   text-align: center;
 }
 
 .bottom-tabbar .tab-count {
   position: absolute;
-  top: 5px;
-  right: 9px;
-  min-width: 20px;
-  min-height: 20px;
+  top: 4px;
+  right: 6px;
+  min-width: 18px;
+  min-height: 18px;
   background: var(--accent-soft);
   color: var(--green-dark);
-  font-size: 0.68rem;
+  font-size: 0.62rem;
 }
 
 .bottom-tabbar .tab-button.active .tab-count {
@@ -806,6 +806,15 @@ textarea:focus {
   min-width: min(560px, 100%);
 }
 
+.schedule-controls .view-only-grid,
+.schedule-controls.grid-mode .view-only-list {
+  display: none;
+}
+
+.schedule-controls.grid-mode .view-only-grid {
+  display: block;
+}
+
 .view-toggle {
   display: flex;
   flex: 0 0 auto;
@@ -1178,6 +1187,10 @@ textarea:focus {
   gap: 10px;
 }
 
+.missed-panel.collapsed .missed-panel-header p {
+  display: none;
+}
+
 .missed-task-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1212,6 +1225,17 @@ textarea:focus {
 .missed-actions .secondary-button {
   min-height: 38px;
   padding: 0 12px;
+}
+
+.compact-button {
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.ghost-button {
+  border: 1px solid var(--line);
+  background: var(--field);
+  color: var(--muted);
 }
 
 .focus-overlay {
@@ -2097,16 +2121,28 @@ textarea:focus {
   }
 
   .bottom-tabbar {
-    bottom: 8px;
-    width: calc(100% - 16px);
-    padding: 7px;
+    bottom: 6px;
+    width: calc(100% - 12px);
+    padding: 5px;
   }
 
   .bottom-tabbar .tab-button {
-    min-height: 56px;
+    min-height: 48px;
   }
 
   .tab-label {
-    font-size: 0.68rem;
+    font-size: 0.64rem;
+  }
+
+  .bottom-tabbar svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .bottom-tabbar .tab-count {
+    right: 4px;
+    min-width: 17px;
+    min-height: 17px;
+    font-size: 0.58rem;
   }
 }
