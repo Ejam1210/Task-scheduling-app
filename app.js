@@ -335,9 +335,11 @@ taskList.addEventListener("click", (event) => {
   }
 
   if (button.dataset.action === "finish") {
-    if (!isActiveTimerCompleteFor(taskId, occurrenceDate)) return;
+    if (!isActiveTimerFor({ id: taskId, occurrenceDate })) return;
 
-    tasks = tasks.map((task) => markTaskComplete(task, taskId, occurrenceDate));
+    const earnedPoints = calculateTimerEarnedPoints(activeTimer);
+    const actualMinutes = calculateTimerElapsedMinutes(activeTimer);
+    tasks = tasks.map((task) => markTaskComplete(task, taskId, occurrenceDate, earnedPoints, actualMinutes));
     clearActiveTimer();
   }
 
@@ -391,9 +393,11 @@ focusOverlay.addEventListener("click", (event) => {
   if (!button) return;
 
   if (button.dataset.focusAction === "finish" && activeTimer) {
-    if (!isActiveTimerCompleteFor(activeTimer.taskId, activeTimer.occurrenceDate)) return;
-
-    tasks = tasks.map((task) => markTaskComplete(task, activeTimer.taskId, activeTimer.occurrenceDate));
+    const earnedPoints = calculateTimerEarnedPoints(activeTimer);
+    const actualMinutes = calculateTimerElapsedMinutes(activeTimer);
+    tasks = tasks.map((task) =>
+      markTaskComplete(task, activeTimer.taskId, activeTimer.occurrenceDate, earnedPoints, actualMinutes),
+    );
     clearActiveTimer();
     saveTasks();
   }
@@ -555,12 +559,20 @@ function buildCompletedHistory() {
 function createOccurrence(task, date) {
   const completedDates = Array.isArray(task.completedDates) ? task.completedDates : [];
   const skippedDates = Array.isArray(task.skippedDates) ? task.skippedDates : [];
+  const earnedPointsByDate = task.earnedPointsByDate ?? {};
+  const actualMinutesByDate = task.actualMinutesByDate ?? {};
+  const done = task.repeats ? completedDates.includes(date) : Boolean(task.done);
+  const earnedPoints = task.repeats ? earnedPointsByDate[date] : task.earnedPoints;
+  const actualMinutes = task.repeats ? actualMinutesByDate[date] : task.actualMinutes;
+
   return {
     ...task,
     priority: normalizePriority(task.priority),
     occurrenceDate: date,
-    done: task.repeats ? completedDates.includes(date) : Boolean(task.done),
+    done,
     skipped: task.repeats ? skippedDates.includes(date) : Boolean(task.skipped),
+    earnedPoints: done && Number.isFinite(Number(earnedPoints)) ? Number(earnedPoints) : null,
+    actualMinutes: done && Number.isFinite(Number(actualMinutes)) ? Number(actualMinutes) : null,
   };
 }
 
@@ -591,7 +603,7 @@ function renderDailyDashboard(occurrences) {
   const completed = todaysTasks.filter((task) => task.done);
   const remaining = todaysTasks.filter((task) => !task.done);
   const pointsToday = completed.reduce((total, task) => total + calculatePoints(task), 0);
-  const minutesToday = completed.reduce((total, task) => total + Number(task.duration), 0);
+  const minutesToday = completed.reduce((total, task) => total + calculateCompletedMinutes(task), 0);
   const activeTask = activeTimer
     ? occurrences.find((task) => isActiveTimerFor(task))
     : null;
@@ -732,7 +744,6 @@ function createTaskCard(task) {
   const streakChip = createStreakChip(task.type);
   const typeStyle = createTypeStyleAttribute(task.type);
   const isTimerActive = isActiveTimerFor(task);
-  const timerComplete = isTimerActive && isTimerComplete(activeTimer);
   const canStartTimer = !task.done && (!activeTimer || isTimerActive);
   const timerPanel = isTimerActive
     ? `
@@ -745,7 +756,7 @@ function createTaskCard(task) {
   const timerButton = task.done
     ? ""
     : isTimerActive
-      ? `<button class="icon-button finish" type="button" data-action="finish" title="${timerComplete ? "Finish task" : "Finish unlocks when the timer ends"}" aria-label="Finish task" data-active-finish ${timerComplete ? "" : "disabled"}>Finish</button>`
+      ? `<button class="icon-button finish" type="button" data-action="finish" title="Finish now and earn points for elapsed time" aria-label="Finish task" data-active-finish>Finish</button>`
       : `<button class="icon-button start" type="button" data-action="start" title="Start task" aria-label="Start task" ${canStartTimer ? "" : "disabled"}>Start</button>`;
   const undoButton = task.done
     ? `
@@ -798,6 +809,7 @@ function createCompletedTaskCard(task) {
   const notes = task.notes ? `<p>${escapeHTML(task.notes)}</p>` : "";
   const repeatLabel = task.repeats ? createRepeatLabel(task.repeatDays) : "One-time";
   const points = calculatePoints(task);
+  const completedMinutes = calculateCompletedMinutes(task);
   const priorityChip = createPriorityChip(task);
   const streakChip = createStreakChip(task.type);
   const typeStyle = createTypeStyleAttribute(task.type);
@@ -812,7 +824,7 @@ function createCompletedTaskCard(task) {
         <div class="task-title">${escapeHTML(task.title)}</div>
         ${notes}
         <div class="task-meta">
-          <span class="chip">${task.duration} min</span>
+          <span class="chip">${formatMinutesAsHours(completedMinutes)} tracked</span>
           <span class="chip type-chip">${escapeHTML(task.type)}</span>
           ${priorityChip}
           ${streakChip}
@@ -1474,7 +1486,7 @@ function buildWeekMetrics(completedHistory, start, end) {
     const taskDate = parseISODate(task.occurrenceDate);
     return taskDate >= start && taskDate <= end;
   });
-  const minutes = completed.reduce((total, task) => total + Number(task.duration), 0);
+  const minutes = completed.reduce((total, task) => total + calculateCompletedMinutes(task), 0);
   const points = completed.reduce((total, task) => total + calculatePoints(task), 0);
 
   return {
@@ -1775,32 +1787,63 @@ function toggleTaskCompletion(task, taskId, occurrenceDate) {
   if (task.id !== taskId) return task;
 
   if (!task.repeats) {
-    return { ...task, done: !task.done };
+    if (!task.done) return { ...task, done: true };
+
+    const { earnedPoints, actualMinutes, ...remainingTask } = task;
+    return { ...remainingTask, done: false };
   }
 
   const completedDates = Array.isArray(task.completedDates) ? task.completedDates : [];
   const alreadyDone = completedDates.includes(occurrenceDate);
+  const earnedPointsByDate = { ...(task.earnedPointsByDate ?? {}) };
+  const actualMinutesByDate = { ...(task.actualMinutesByDate ?? {}) };
+
+  if (alreadyDone) {
+    delete earnedPointsByDate[occurrenceDate];
+    delete actualMinutesByDate[occurrenceDate];
+  }
+
   return {
     ...task,
     completedDates: alreadyDone
       ? completedDates.filter((date) => date !== occurrenceDate)
       : [...completedDates, occurrenceDate],
+    earnedPointsByDate,
+    actualMinutesByDate,
   };
 }
 
-function markTaskComplete(task, taskId, occurrenceDate) {
+function markTaskComplete(task, taskId, occurrenceDate, earnedPoints = null, actualMinutes = null) {
   if (task.id !== taskId) return task;
+  const normalizedPoints = normalizeEarnedPoints(earnedPoints, task);
+  const normalizedMinutes = normalizeActualMinutes(actualMinutes, task);
 
   if (!task.repeats) {
-    return { ...task, done: true };
+    return {
+      ...task,
+      done: true,
+      earnedPoints: normalizedPoints,
+      actualMinutes: normalizedMinutes,
+    };
   }
 
   const completedDates = Array.isArray(task.completedDates) ? task.completedDates : [];
+  const earnedPointsByDate = {
+    ...(task.earnedPointsByDate ?? {}),
+    [occurrenceDate]: normalizedPoints,
+  };
+  const actualMinutesByDate = {
+    ...(task.actualMinutesByDate ?? {}),
+    [occurrenceDate]: normalizedMinutes,
+  };
+
   return {
     ...task,
     completedDates: completedDates.includes(occurrenceDate)
       ? completedDates
       : [...completedDates, occurrenceDate],
+    earnedPointsByDate,
+    actualMinutesByDate,
   };
 }
 
@@ -1880,14 +1923,6 @@ function isActiveTimerFor(task) {
   );
 }
 
-function isActiveTimerCompleteFor(taskId, occurrenceDate) {
-  return (
-    activeTimer?.taskId === taskId &&
-    activeTimer?.occurrenceDate === occurrenceDate &&
-    isTimerComplete(activeTimer)
-  );
-}
-
 function isTimerComplete(timer) {
   return Boolean(timer) && getTimerRemainingMs(timer) === 0;
 }
@@ -1921,7 +1956,6 @@ function renderFocusOverlay(occurrences) {
     return;
   }
 
-  const timerComplete = isTimerComplete(activeTimer);
   focusOverlay.classList.add("visible");
   focusOverlay.innerHTML = `
     <section class="focus-card" ${createTypeStyleAttribute(activeTask.type)}>
@@ -1933,7 +1967,7 @@ function renderFocusOverlay(occurrences) {
         <span data-timer-progress style="width: ${calculateTimerProgress(activeTimer)}%"></span>
       </div>
       <div class="focus-actions">
-        <button class="primary-button" data-focus-action="finish" data-active-finish type="button" ${timerComplete ? "" : "disabled"}>
+        <button class="primary-button" data-focus-action="finish" data-active-finish type="button">
           Finish
         </button>
         <button class="secondary-button" data-focus-action="off" type="button">Turn off focus</button>
@@ -1996,8 +2030,8 @@ function updateTimerDisplay() {
   });
 
   document.querySelectorAll("[data-active-finish]").forEach((button) => {
-    button.disabled = !timerComplete;
-    button.title = timerComplete ? "Finish task" : "Finish unlocks when the timer ends";
+    button.disabled = false;
+    button.title = timerComplete ? "Finish task" : "Finish now and earn points for elapsed time";
   });
 
   document.querySelectorAll("[data-timer-progress]").forEach((element) => {
@@ -2009,6 +2043,18 @@ function getTimerRemainingMs(timer) {
   const totalMs = Number(timer.duration) * 60 * 1000;
   const elapsedMs = Date.now() - Number(timer.startedAt);
   return Math.max(totalMs - elapsedMs, 0);
+}
+
+function calculateTimerElapsedMinutes(timer) {
+  if (!timer) return 0;
+
+  const duration = Number(timer.duration) || 0;
+  const elapsedMinutes = (Date.now() - Number(timer.startedAt)) / 60000;
+  return clamp(elapsedMinutes, 0, duration);
+}
+
+function calculateTimerEarnedPoints(timer) {
+  return Math.round((calculateTimerElapsedMinutes(timer) / 30) * 10);
 }
 
 function calculateTimerProgress(timer) {
@@ -2119,7 +2165,28 @@ function normalizePriority(value) {
 }
 
 function calculatePoints(task) {
-  return (Number(task.duration) / 30) * 10;
+  if (task.done && Number.isFinite(Number(task.earnedPoints))) {
+    return Math.round(Number(task.earnedPoints));
+  }
+
+  return Math.round((Number(task.duration) / 30) * 10);
+}
+
+function calculateCompletedMinutes(task) {
+  if (task.done && Number.isFinite(Number(task.actualMinutes))) {
+    return Math.round(Number(task.actualMinutes));
+  }
+
+  return Number(task.duration) || 0;
+}
+
+function normalizeEarnedPoints(value, task) {
+  return Number.isFinite(Number(value)) ? Math.max(Math.round(Number(value)), 0) : calculatePoints(task);
+}
+
+function normalizeActualMinutes(value, task) {
+  const fallback = Number(task.duration) || 0;
+  return Number.isFinite(Number(value)) ? Math.round(clamp(Number(value), 0, fallback)) : fallback;
 }
 
 function formatPoints(points) {
@@ -2288,8 +2355,22 @@ function normalizeTasks(savedTasks) {
     repeatDays: Array.isArray(task.repeatDays) ? task.repeatDays.map(Number) : [],
     completedDates: Array.isArray(task.completedDates) ? task.completedDates : [],
     skippedDates: Array.isArray(task.skippedDates) ? task.skippedDates : [],
+    earnedPoints: Number.isFinite(Number(task.earnedPoints)) ? Math.round(Number(task.earnedPoints)) : null,
+    actualMinutes: Number.isFinite(Number(task.actualMinutes)) ? Math.round(Number(task.actualMinutes)) : null,
+    earnedPointsByDate: normalizeNumberMap(task.earnedPointsByDate),
+    actualMinutesByDate: normalizeNumberMap(task.actualMinutesByDate),
     skipped: Boolean(task.skipped),
   }));
+}
+
+function normalizeNumberMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, mapValue]) => Number.isFinite(Number(mapValue)))
+      .map(([key, mapValue]) => [key, Math.round(Number(mapValue))]),
+  );
 }
 
 function normalizeTaskTemplate(template) {
