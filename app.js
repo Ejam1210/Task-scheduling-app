@@ -8,6 +8,20 @@ const TIMER_STORAGE_KEY = "daily-task-scheduler.active-timer";
 const FEATURE_STORAGE_KEY = "daily-task-scheduler.feature-settings";
 const TEMPLATE_STORAGE_KEY = "daily-task-scheduler.task-templates";
 const MISSED_COLLAPSE_STORAGE_KEY = "daily-task-scheduler.missed-collapsed";
+const PROFILE_STORAGE_KEY = "daily-task-scheduler.profiles";
+const ACTIVE_PROFILE_STORAGE_KEY = "daily-task-scheduler.active-profile";
+const SUPABASE_URL = "https://xaacjrtkzvphztifnywm.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhYWNqcnRrenZwaHp0aWZueXdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMDA4NzcsImV4cCI6MjA5NTg3Njg3N30.mTBCPN4JiVDWQVVxBXyFE67vJ3i8A4JoW8mpUO1wDfo";
+const CLOUD_DATA_TABLE = "scheduler_app_data";
+const PROFILE_SCOPED_STORAGE_KEYS = [
+  STORAGE_KEY,
+  TYPE_STORAGE_KEY,
+  GOAL_STORAGE_KEY,
+  OVERLAP_DISMISS_STORAGE_KEY,
+  TIMER_STORAGE_KEY,
+  TEMPLATE_STORAGE_KEY,
+  MISSED_COLLAPSE_STORAGE_KEY,
+];
 const SCHEDULE_DAYS_TO_SHOW = 30;
 const GRID_MINUTE_HEIGHT = 2.05;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -56,6 +70,31 @@ const taskTemplateSelect = document.querySelector("#taskTemplate");
 const saveTemplateButton = document.querySelector("#saveTemplateButton");
 const taskRepeatsInput = document.querySelector("#taskRepeats");
 const weekdayPicker = document.querySelector("#weekdayPicker");
+const profileButton = document.querySelector("#profileButton");
+const profileAvatar = document.querySelector("#profileAvatar");
+const profileAvatarLarge = document.querySelector("#profileAvatarLarge");
+const profileNameLabel = document.querySelector("#profileNameLabel");
+const activeProfileName = document.querySelector("#activeProfileName");
+const profileMenu = document.querySelector("#profileMenu");
+const closeProfileButton = document.querySelector("#closeProfileButton");
+const editProfileButton = document.querySelector("#editProfileButton");
+const profileEditForm = document.querySelector("#profileEditForm");
+const editProfileNameInput = document.querySelector("#editProfileName");
+const cancelProfileEditButton = document.querySelector("#cancelProfileEditButton");
+const profileForm = document.querySelector("#profileForm");
+const newProfileNameInput = document.querySelector("#newProfileName");
+const profileList = document.querySelector("#profileList");
+const profilePhotoInput = document.querySelector("#profilePhotoInput");
+const removeProfilePhotoButton = document.querySelector("#removeProfilePhotoButton");
+const authForm = document.querySelector("#authForm");
+const authEmailInput = document.querySelector("#authEmail");
+const authPasswordInput = document.querySelector("#authPassword");
+const signupButton = document.querySelector("#signupButton");
+const authSession = document.querySelector("#authSession");
+const authUserLabel = document.querySelector("#authUserLabel");
+const cloudStatus = document.querySelector("#cloudStatus");
+const syncNowButton = document.querySelector("#syncNowButton");
+const logoutButton = document.querySelector("#logoutButton");
 const menuButton = document.querySelector("#menuButton");
 const closeMenuButton = document.querySelector("#closeMenuButton");
 const sideMenu = document.querySelector("#sideMenu");
@@ -74,8 +113,17 @@ const editTaskTypeInput = document.querySelector("#editTaskType");
 const editTaskPriorityInput = document.querySelector("#editTaskPriority");
 const editTaskNotesInput = document.querySelector("#editTaskNotes");
 const editTaskRepeatsInput = document.querySelector("#editTaskRepeats");
+const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) ?? null;
 const cancelEditTaskButton = document.querySelector("#cancelEditTask");
 
+let cloudUser = null;
+let cloudSaveTimeout = null;
+let lastCloudSaveSnapshot = "";
+let isApplyingCloudData = false;
+let isLoadingCloudData = false;
+let profiles = loadProfiles();
+let activeProfileId = getSavedActiveProfileId(profiles);
+migrateLegacyProfileData();
 let tasks = loadTasks();
 let customTaskTypes = mergeCustomTaskTypes(loadCustomTaskTypes(), tasks.map((task) => task.type));
 let weeklyGoals = loadWeeklyGoals();
@@ -88,11 +136,11 @@ let scheduleGridZoom = 1;
 let pinchStartDistance = 0;
 let pinchStartZoom = 1;
 let currentOverlapSignature = "";
-let dismissedOverlapSignature = localStorage.getItem(OVERLAP_DISMISS_STORAGE_KEY) ?? "";
+let dismissedOverlapSignature = localStorage.getItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY)) ?? "";
 let activeTimer = loadActiveTimer();
 let timerInterval = null;
 let currentTypeStreaks = new Map();
-let missedTasksCollapsed = localStorage.getItem(MISSED_COLLAPSE_STORAGE_KEY) === "true";
+let missedTasksCollapsed = localStorage.getItem(getProfileStorageKey(MISSED_COLLAPSE_STORAGE_KEY)) === "true";
 let holdToEditTimer = null;
 let holdToEditTarget = null;
 
@@ -201,6 +249,7 @@ todayLabel.textContent = today.toLocaleDateString(undefined, {
   day: "numeric",
 });
 saveCustomTaskTypes();
+renderProfileControls();
 renderTaskTypeOptions();
 renderTaskTemplateOptions();
 applyWeeklyGoalsToControls();
@@ -264,9 +313,22 @@ gridZoomOutButton.addEventListener("click", () => setScheduleGridZoom(scheduleGr
 taskTypeInput.addEventListener("change", toggleCustomTypeInput);
 taskTemplateSelect.addEventListener("change", applySelectedTaskTemplate);
 saveTemplateButton.addEventListener("click", saveCurrentTaskTemplate);
+profileButton.addEventListener("click", openProfileMenu);
+closeProfileButton.addEventListener("click", closeProfileMenu);
+editProfileButton.addEventListener("click", openProfileEditor);
+profileEditForm.addEventListener("submit", saveEditedProfile);
+cancelProfileEditButton.addEventListener("click", closeProfileEditor);
+profileForm.addEventListener("submit", createProfile);
+profileList.addEventListener("click", handleProfileListClick);
+profilePhotoInput.addEventListener("change", updateProfilePhoto);
+removeProfilePhotoButton.addEventListener("click", removeProfilePhoto);
+authForm.addEventListener("submit", signInWithEmail);
+signupButton.addEventListener("click", signUpWithEmail);
+syncNowButton.addEventListener("click", saveCloudDataNow);
+logoutButton.addEventListener("click", signOut);
 menuButton.addEventListener("click", openMenu);
 closeMenuButton.addEventListener("click", closeMenu);
-drawerOverlay.addEventListener("click", closeMenu);
+drawerOverlay.addEventListener("click", closeAllMenus);
 
 taskRepeatsInput.addEventListener("change", () => {
   if (taskRepeatsInput.checked && getSelectedRepeatDays().length === 0) {
@@ -417,7 +479,8 @@ editTaskOverlay.addEventListener("click", (event) => {
 
 collapseMissedButton.addEventListener("click", () => {
   missedTasksCollapsed = !missedTasksCollapsed;
-  localStorage.setItem(MISSED_COLLAPSE_STORAGE_KEY, String(missedTasksCollapsed));
+  localStorage.setItem(getProfileStorageKey(MISSED_COLLAPSE_STORAGE_KEY), String(missedTasksCollapsed));
+  queueCloudSave();
   renderMissedTasks();
 });
 
@@ -453,17 +516,20 @@ overlapAlert.addEventListener("click", (event) => {
 
   if (button.dataset.overlapAction === "dismiss") {
     dismissedOverlapSignature = currentOverlapSignature;
-    localStorage.setItem(OVERLAP_DISMISS_STORAGE_KEY, dismissedOverlapSignature);
+    localStorage.setItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY), dismissedOverlapSignature);
+    queueCloudSave();
   }
 
   if (button.dataset.overlapAction === "expand") {
     dismissedOverlapSignature = "";
-    localStorage.removeItem(OVERLAP_DISMISS_STORAGE_KEY);
+    localStorage.removeItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY));
+    queueCloudSave();
   }
 
   render();
 });
 
+initializeCloudAuth();
 render();
 
 function switchTab(tabName) {
@@ -2137,18 +2203,20 @@ function clearActiveTimerFor(taskId, occurrenceDate) {
 
 function clearActiveTimer() {
   activeTimer = null;
-  localStorage.removeItem(TIMER_STORAGE_KEY);
+  localStorage.removeItem(getProfileStorageKey(TIMER_STORAGE_KEY));
   stopTimerInterval();
+  queueCloudSave();
 }
 
 function saveActiveTimer() {
   if (!activeTimer) return;
-  localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(activeTimer));
+  localStorage.setItem(getProfileStorageKey(TIMER_STORAGE_KEY), JSON.stringify(activeTimer));
+  queueCloudSave();
 }
 
 function loadActiveTimer() {
   try {
-    const savedTimer = JSON.parse(localStorage.getItem(TIMER_STORAGE_KEY));
+    const savedTimer = JSON.parse(localStorage.getItem(getProfileStorageKey(TIMER_STORAGE_KEY)));
     if (!savedTimer?.taskId || !savedTimer?.occurrenceDate || !savedTimer?.startedAt) return null;
 
     return {
@@ -2363,6 +2431,7 @@ function applyTheme(theme) {
   document.querySelectorAll(".theme-button").forEach((button) => {
     button.classList.toggle("active", button.dataset.theme === currentTheme);
   });
+  queueCloudSave();
 }
 
 function applyAccentTheme(theme, shouldSave = true) {
@@ -2379,6 +2448,7 @@ function applyAccentTheme(theme, shouldSave = true) {
 
   if (shouldSave) {
     localStorage.setItem(ACCENT_STORAGE_KEY, currentAccentTheme);
+    queueCloudSave();
   }
 
   colourThemeButtons.forEach((button) => {
@@ -2397,41 +2467,701 @@ function applyFeatureVisibility() {
   priorityField.classList.toggle("hidden", !featureSettings.priorities);
 }
 
+function openProfileMenu() {
+  closeMenu(false);
+  closeProfileEditor();
+  renderProfileControls();
+  profileMenu.classList.add("open");
+  drawerOverlay.classList.add("open");
+  profileButton.setAttribute("aria-expanded", "true");
+}
+
+function closeProfileMenu(shouldCloseOverlay = true) {
+  profileMenu.classList.remove("open");
+  profileButton.setAttribute("aria-expanded", "false");
+  if (shouldCloseOverlay && !sideMenu.classList.contains("open")) {
+    drawerOverlay.classList.remove("open");
+  }
+}
+
 function openMenu() {
+  closeProfileMenu(false);
   sideMenu.classList.add("open");
   drawerOverlay.classList.add("open");
   menuButton.setAttribute("aria-expanded", "true");
 }
 
-function closeMenu() {
+function closeMenu(shouldCloseOverlay = true) {
   sideMenu.classList.remove("open");
-  drawerOverlay.classList.remove("open");
   menuButton.setAttribute("aria-expanded", "false");
+  if (shouldCloseOverlay && !profileMenu.classList.contains("open")) {
+    drawerOverlay.classList.remove("open");
+  }
+}
+
+function closeAllMenus() {
+  closeMenu(false);
+  closeProfileMenu(false);
+  drawerOverlay.classList.remove("open");
+}
+
+async function initializeCloudAuth() {
+  if (!supabaseClient) {
+    setCloudStatus("Cloud login could not load. Check your internet connection and refresh the app.");
+    authForm.classList.add("hidden");
+    authSession.classList.add("hidden");
+    return;
+  }
+
+  setCloudStatus("Checking cloud login...");
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) {
+    setCloudStatus(error.message);
+    return;
+  }
+
+  cloudUser = data.session?.user ?? null;
+  updateAuthUI();
+  if (cloudUser) {
+    await loadCloudData();
+  }
+
+  supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    const nextUser = session?.user ?? null;
+    const userChanged = nextUser?.id !== cloudUser?.id;
+    cloudUser = nextUser;
+    updateAuthUI();
+
+    if (cloudUser && userChanged) {
+      await loadCloudData();
+    }
+  });
+}
+
+async function signInWithEmail(event) {
+  event.preventDefault();
+  if (!supabaseClient) return;
+
+  const credentials = getAuthCredentials();
+  if (!credentials) return;
+
+  setCloudStatus("Logging in...");
+  const { data, error } = await supabaseClient.auth.signInWithPassword(credentials);
+  if (error) {
+    setCloudStatus(error.message);
+    return;
+  }
+
+  cloudUser = data.user;
+  updateAuthUI();
+  await loadCloudData();
+}
+
+async function signUpWithEmail() {
+  if (!supabaseClient) return;
+
+  const credentials = getAuthCredentials();
+  if (!credentials) return;
+
+  setCloudStatus("Creating account...");
+  const { data, error } = await supabaseClient.auth.signUp(credentials);
+  if (error) {
+    setCloudStatus(error.message);
+    return;
+  }
+
+  if (data.session?.user) {
+    cloudUser = data.session.user;
+    updateAuthUI();
+    await saveCloudDataNow();
+    return;
+  }
+
+  setCloudStatus("Account created. Check your email to confirm it, then log in.");
+}
+
+async function signOut() {
+  if (!supabaseClient) return;
+
+  setCloudStatus("Logging out...");
+  await supabaseClient.auth.signOut();
+  cloudUser = null;
+  lastCloudSaveSnapshot = "";
+  updateAuthUI();
+}
+
+function getAuthCredentials() {
+  const email = authEmailInput.value.trim();
+  const password = authPasswordInput.value;
+
+  if (!email) {
+    authEmailInput.focus();
+    return null;
+  }
+
+  if (password.length < 6) {
+    authPasswordInput.focus();
+    setCloudStatus("Password must be at least 6 characters.");
+    return null;
+  }
+
+  return { email, password };
+}
+
+function updateAuthUI() {
+  const signedIn = Boolean(cloudUser);
+  authForm.classList.toggle("hidden", signedIn);
+  authSession.classList.toggle("hidden", !signedIn);
+  authUserLabel.textContent = cloudUser?.email ?? "Signed in";
+
+  if (signedIn) {
+    authPasswordInput.value = "";
+    setCloudStatus("Signed in. Changes will sync to your cloud account.");
+  } else {
+    setCloudStatus("Sign in to sync this schedule across your devices.");
+  }
+}
+
+function setCloudStatus(message) {
+  cloudStatus.textContent = message;
+}
+
+async function loadCloudData() {
+  if (!supabaseClient || !cloudUser || isLoadingCloudData) return;
+
+  isLoadingCloudData = true;
+  setCloudStatus("Loading cloud schedule...");
+
+  const { data, error } = await supabaseClient
+    .from(CLOUD_DATA_TABLE)
+    .select("data")
+    .eq("user_id", cloudUser.id)
+    .maybeSingle();
+
+  isLoadingCloudData = false;
+
+  if (error) {
+    setCloudStatus("Cloud table is not ready yet. Run supabase-setup.sql in Supabase, then press Sync now.");
+    console.error(error);
+    return;
+  }
+
+  if (data?.data?.version) {
+    applyCloudSnapshot(data.data);
+    setCloudStatus("Cloud schedule loaded.");
+    return;
+  }
+
+  await saveCloudDataNow();
+}
+
+function queueCloudSave() {
+  if (!supabaseClient || !cloudUser || isApplyingCloudData) return;
+
+  clearTimeout(cloudSaveTimeout);
+  cloudSaveTimeout = setTimeout(saveCloudDataNow, 700);
+}
+
+async function saveCloudDataNow() {
+  if (!supabaseClient || !cloudUser || isApplyingCloudData) return;
+
+  clearTimeout(cloudSaveTimeout);
+  const snapshot = createCloudSnapshot();
+  const serializedSnapshot = JSON.stringify(snapshot);
+
+  if (serializedSnapshot === lastCloudSaveSnapshot) {
+    setCloudStatus("Already synced.");
+    return;
+  }
+
+  setCloudStatus("Syncing schedule...");
+  const { error } = await supabaseClient
+    .from(CLOUD_DATA_TABLE)
+    .upsert(
+      {
+        user_id: cloudUser.id,
+        data: snapshot,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
+
+  if (error) {
+    setCloudStatus("Could not sync yet. Check the Supabase table setup.");
+    console.error(error);
+    return;
+  }
+
+  lastCloudSaveSnapshot = serializedSnapshot;
+  setCloudStatus("Synced just now.");
+}
+
+function createCloudSnapshot() {
+  return {
+    version: 1,
+    profiles,
+    activeProfileId,
+    theme: currentTheme,
+    accent: currentAccentTheme,
+    featureSettings: normalizeFeatureSettings(featureSettings),
+    profileData: Object.fromEntries(profiles.map((profile) => [profile.id, createProfileCloudData(profile.id)])),
+  };
+}
+
+function createProfileCloudData(profileId) {
+  return {
+    tasks: readProfileJSON(STORAGE_KEY, profileId, []),
+    customTaskTypes: readProfileJSON(TYPE_STORAGE_KEY, profileId, []),
+    weeklyGoals: readProfileJSON(GOAL_STORAGE_KEY, profileId, {}),
+    taskTemplates: readProfileJSON(TEMPLATE_STORAGE_KEY, profileId, []),
+    activeTimer: readProfileJSON(TIMER_STORAGE_KEY, profileId, null),
+    dismissedOverlapSignature: localStorage.getItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY, profileId)) ?? "",
+    missedTasksCollapsed: localStorage.getItem(getProfileStorageKey(MISSED_COLLAPSE_STORAGE_KEY, profileId)) === "true",
+  };
+}
+
+function applyCloudSnapshot(snapshot) {
+  isApplyingCloudData = true;
+
+  try {
+    profiles = normalizeCloudProfiles(snapshot.profiles);
+    activeProfileId = profiles.some((profile) => profile.id === snapshot.activeProfileId)
+      ? snapshot.activeProfileId
+      : profiles[0].id;
+    currentTheme = snapshot.theme === "dark" ? "dark" : "light";
+    currentAccentTheme = ACCENT_THEMES[snapshot.accent] ? snapshot.accent : "green";
+    featureSettings = normalizeFeatureSettings(snapshot.featureSettings ?? {});
+
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles));
+    localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, activeProfileId);
+    localStorage.setItem(FEATURE_STORAGE_KEY, JSON.stringify(featureSettings));
+
+    const profileData = snapshot.profileData && typeof snapshot.profileData === "object" ? snapshot.profileData : {};
+    profiles.forEach((profile) => writeProfileCloudData(profile.id, profileData[profile.id] ?? {}));
+
+    stopTimerInterval();
+    tasks = loadTasks();
+    customTaskTypes = mergeCustomTaskTypes(loadCustomTaskTypes(), tasks.map((task) => task.type));
+    weeklyGoals = loadWeeklyGoals();
+    taskTemplates = loadTaskTemplates();
+    dismissedOverlapSignature = localStorage.getItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY)) ?? "";
+    missedTasksCollapsed = localStorage.getItem(getProfileStorageKey(MISSED_COLLAPSE_STORAGE_KEY)) === "true";
+    activeTimer = loadActiveTimer();
+
+    saveCustomTaskTypes();
+    renderProfileControls();
+    renderTaskTypeOptions();
+    renderTaskTemplateOptions();
+    applyWeeklyGoalsToControls();
+    applyFeatureSettingsToControls();
+    applyTheme(currentTheme);
+    applyAccentTheme(currentAccentTheme);
+    resetForm();
+    render();
+  } finally {
+    isApplyingCloudData = false;
+    lastCloudSaveSnapshot = JSON.stringify(createCloudSnapshot());
+  }
+}
+
+function normalizeCloudProfiles(savedProfiles) {
+  const normalizedProfiles = Array.isArray(savedProfiles)
+    ? savedProfiles.map(normalizeProfile).filter(Boolean)
+    : [];
+
+  return normalizedProfiles.length > 0 ? normalizedProfiles : [createDefaultProfile()];
+}
+
+function writeProfileCloudData(profileId, data) {
+  writeProfileJSON(STORAGE_KEY, profileId, normalizeTasks(Array.isArray(data.tasks) ? data.tasks : []));
+  writeProfileJSON(TYPE_STORAGE_KEY, profileId, mergeCustomTaskTypes(Array.isArray(data.customTaskTypes) ? data.customTaskTypes : [], []));
+  writeProfileJSON(GOAL_STORAGE_KEY, profileId, normalizeWeeklyGoals(data.weeklyGoals ?? {}));
+  writeProfileJSON(
+    TEMPLATE_STORAGE_KEY,
+    profileId,
+    Array.isArray(data.taskTemplates)
+      ? data.taskTemplates.map(normalizeTaskTemplate).filter((template) => template.title && template.type)
+      : [],
+  );
+
+  if (data.activeTimer) {
+    writeProfileJSON(TIMER_STORAGE_KEY, profileId, data.activeTimer);
+  } else {
+    localStorage.removeItem(getProfileStorageKey(TIMER_STORAGE_KEY, profileId));
+  }
+
+  const overlapSignature = String(data.dismissedOverlapSignature ?? "");
+  if (overlapSignature) {
+    localStorage.setItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY, profileId), overlapSignature);
+  } else {
+    localStorage.removeItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY, profileId));
+  }
+
+  localStorage.setItem(getProfileStorageKey(MISSED_COLLAPSE_STORAGE_KEY, profileId), String(Boolean(data.missedTasksCollapsed)));
+}
+
+function readProfileJSON(key, profileId, fallback) {
+  try {
+    const value = localStorage.getItem(getProfileStorageKey(key, profileId));
+    return value === null ? fallback : JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function writeProfileJSON(key, profileId, value) {
+  localStorage.setItem(getProfileStorageKey(key, profileId), JSON.stringify(value));
+}
+
+function createProfile(event) {
+  event.preventDefault();
+  const name = normalizeProfileName(newProfileNameInput.value);
+  if (!name) {
+    newProfileNameInput.focus();
+    return;
+  }
+
+  const profile = {
+    id: createId("profile"),
+    name,
+    avatarDataUrl: "",
+    createdAt: new Date().toISOString(),
+  };
+
+  profiles = [...profiles, profile];
+  saveProfiles();
+  newProfileNameInput.value = "";
+  switchProfile(profile.id);
+}
+
+function handleProfileListClick(event) {
+  const button = event.target.closest("button[data-profile-action]");
+  if (!button) return;
+
+  const profileId = button.dataset.profileId;
+  if (button.dataset.profileAction === "switch") {
+    switchProfile(profileId);
+  }
+
+  if (button.dataset.profileAction === "delete") {
+    deleteProfile(profileId);
+  }
+}
+
+function openProfileEditor() {
+  const activeProfile = getActiveProfile();
+  editProfileNameInput.value = activeProfile.name;
+  profileEditForm.classList.remove("hidden");
+  editProfileNameInput.focus();
+  editProfileNameInput.select();
+}
+
+function closeProfileEditor() {
+  profileEditForm.classList.add("hidden");
+  editProfileNameInput.value = "";
+}
+
+function saveEditedProfile(event) {
+  event.preventDefault();
+  const name = normalizeProfileName(editProfileNameInput.value);
+  if (!name) {
+    editProfileNameInput.focus();
+    return;
+  }
+
+  updateActiveProfile({ name });
+  closeProfileEditor();
+  setCloudStatus("Profile updated.");
+}
+
+async function updateProfilePhoto(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    setCloudStatus("Choose an image file for your profile photo.");
+    profilePhotoInput.value = "";
+    return;
+  }
+
+  try {
+    const avatarDataUrl = await createProfilePhotoDataUrl(file);
+    updateActiveProfile({ avatarDataUrl });
+    setCloudStatus("Profile photo saved.");
+  } catch (error) {
+    console.error(error);
+    setCloudStatus("Could not use that photo. Try a different image.");
+  } finally {
+    profilePhotoInput.value = "";
+  }
+}
+
+function removeProfilePhoto() {
+  updateActiveProfile({ avatarDataUrl: "" });
+  setCloudStatus("Profile photo removed.");
+}
+
+function updateActiveProfile(changes) {
+  profiles = profiles.map((profile) =>
+    profile.id === activeProfileId
+      ? {
+          ...profile,
+          ...changes,
+        }
+      : profile,
+  );
+  saveProfiles();
+  renderProfileControls();
+}
+
+function createProfilePhotoDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resizeProfilePhoto(String(reader.result)).then(resolve).catch(reject));
+    reader.addEventListener("error", reject);
+    reader.readAsDataURL(file);
+  });
+}
+
+function resizeProfilePhoto(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener("load", () => {
+      const canvas = document.createElement("canvas");
+      const size = 256;
+      const sourceSize = Math.min(image.naturalWidth, image.naturalHeight);
+      const sourceX = Math.max((image.naturalWidth - sourceSize) / 2, 0);
+      const sourceY = Math.max((image.naturalHeight - sourceSize) / 2, 0);
+
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d");
+      context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+      resolve(canvas.toDataURL("image/jpeg", 0.82));
+    });
+    image.addEventListener("error", reject);
+    image.src = source;
+  });
+}
+
+function switchProfile(profileId) {
+  if (!profiles.some((profile) => profile.id === profileId)) return;
+  closeProfileEditor();
+  if (profileId === activeProfileId) {
+    closeProfileMenu();
+    return;
+  }
+
+  activeProfileId = profileId;
+  localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, activeProfileId);
+  queueCloudSave();
+  stopTimerInterval();
+  tasks = loadTasks();
+  customTaskTypes = mergeCustomTaskTypes(loadCustomTaskTypes(), tasks.map((task) => task.type));
+  weeklyGoals = loadWeeklyGoals();
+  taskTemplates = loadTaskTemplates();
+  dismissedOverlapSignature = localStorage.getItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY)) ?? "";
+  missedTasksCollapsed = localStorage.getItem(getProfileStorageKey(MISSED_COLLAPSE_STORAGE_KEY)) === "true";
+  activeTimer = loadActiveTimer();
+  saveCustomTaskTypes();
+  renderProfileControls();
+  renderTaskTypeOptions();
+  renderTaskTemplateOptions();
+  applyWeeklyGoalsToControls();
+  resetForm();
+  render();
+  closeProfileMenu();
+}
+
+function deleteProfile(profileId) {
+  if (profiles.length <= 1) return;
+
+  const deletingActiveProfile = profileId === activeProfileId;
+  profiles = profiles.filter((profile) => profile.id !== profileId);
+  PROFILE_SCOPED_STORAGE_KEYS.forEach((key) => {
+    localStorage.removeItem(getProfileStorageKey(key, profileId));
+  });
+  saveProfiles();
+
+  if (deletingActiveProfile) {
+    switchProfile(profiles[0].id);
+    return;
+  }
+
+  renderProfileControls();
+}
+
+function renderProfileControls() {
+  const activeProfile = getActiveProfile();
+  renderProfileAvatar(profileAvatar, activeProfile);
+  renderProfileAvatar(profileAvatarLarge, activeProfile);
+  profileNameLabel.textContent = activeProfile.name;
+  activeProfileName.textContent = activeProfile.name;
+  removeProfilePhotoButton.disabled = !activeProfile.avatarDataUrl;
+
+  profileList.innerHTML = profiles.map((profile) => createProfileRow(profile, activeProfile.id)).join("");
+}
+
+function createProfileRow(profile, selectedProfileId) {
+  const isActive = profile.id === selectedProfileId;
+  const createdLabel = profile.createdAt ? `Created ${formatShortDate(profile.createdAt)}` : "Saved profile";
+  return `
+    <div class="profile-row ${isActive ? "active" : ""}">
+      ${createProfileAvatarMarkup(profile)}
+      <div>
+        <strong>${escapeHTML(profile.name)}</strong>
+        <small>${escapeHTML(createdLabel)}</small>
+      </div>
+      <button class="secondary-button" type="button" data-profile-action="switch" data-profile-id="${escapeHTML(profile.id)}" ${isActive ? "disabled" : ""}>
+        ${isActive ? "Active" : "Switch"}
+      </button>
+      <button class="danger-button" type="button" data-profile-action="delete" data-profile-id="${escapeHTML(profile.id)}" ${profiles.length <= 1 ? "disabled" : ""}>
+        Del
+      </button>
+    </div>
+  `;
+}
+
+function renderProfileAvatar(element, profile) {
+  element.innerHTML = createProfileAvatarContent(profile);
+}
+
+function createProfileAvatarMarkup(profile) {
+  return `<span class="profile-avatar" aria-hidden="true">${createProfileAvatarContent(profile)}</span>`;
+}
+
+function createProfileAvatarContent(profile) {
+  const avatarDataUrl = normalizeAvatarDataUrl(profile?.avatarDataUrl);
+  if (avatarDataUrl) {
+    return `<img src="${avatarDataUrl}" alt="" />`;
+  }
+
+  return escapeHTML(getProfileInitials(profile?.name));
+}
+
+function getActiveProfile() {
+  return profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0];
+}
+
+function saveProfiles() {
+  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles));
+  queueCloudSave();
+}
+
+function loadProfiles() {
+  try {
+    const savedProfiles = JSON.parse(localStorage.getItem(PROFILE_STORAGE_KEY)) ?? [];
+    const normalizedProfiles = savedProfiles.map(normalizeProfile).filter(Boolean);
+    return normalizedProfiles.length > 0 ? normalizedProfiles : [createDefaultProfile()];
+  } catch {
+    return [createDefaultProfile()];
+  }
+}
+
+function normalizeProfile(profile) {
+  const name = normalizeProfileName(profile?.name);
+  if (!name) return null;
+
+  return {
+    id: String(profile.id || createId("profile")),
+    name,
+    avatarDataUrl: normalizeAvatarDataUrl(profile.avatarDataUrl),
+    createdAt: profile.createdAt || new Date().toISOString(),
+  };
+}
+
+function createDefaultProfile() {
+  return {
+    id: "default",
+    name: "My Profile",
+    avatarDataUrl: "",
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function getSavedActiveProfileId(savedProfiles) {
+  const savedProfileId = localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY);
+  return savedProfiles.some((profile) => profile.id === savedProfileId)
+    ? savedProfileId
+    : savedProfiles[0].id;
+}
+
+function migrateLegacyProfileData() {
+  PROFILE_SCOPED_STORAGE_KEYS.forEach((key) => {
+    const legacyValue = localStorage.getItem(key);
+    const scopedKey = getProfileStorageKey(key);
+    if (legacyValue !== null && localStorage.getItem(scopedKey) === null) {
+      localStorage.setItem(scopedKey, legacyValue);
+    }
+  });
+  saveProfiles();
+  localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, activeProfileId);
+}
+
+function getProfileStorageKey(key, profileId = activeProfileId) {
+  return `${key}.${profileId}`;
+}
+
+function normalizeProfileName(name) {
+  return String(name ?? "").trim().replace(/\s+/g, " ").slice(0, 32);
+}
+
+function getProfileInitials(name) {
+  const words = normalizeProfileName(name).split(" ").filter(Boolean);
+  const initials = words.length > 1
+    ? `${words[0][0]}${words[1][0]}`
+    : words[0]?.slice(0, 2);
+
+  return (initials || "ME").toUpperCase();
+}
+
+function normalizeAvatarDataUrl(value) {
+  const avatar = String(value ?? "");
+  return avatar.startsWith("data:image/") && avatar.length < 250000 ? avatar : "";
+}
+
+function createId(prefix) {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function formatShortDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function saveTasks() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+  localStorage.setItem(getProfileStorageKey(STORAGE_KEY), JSON.stringify(tasks));
+  queueCloudSave();
 }
 
 function saveCustomTaskTypes() {
-  localStorage.setItem(TYPE_STORAGE_KEY, JSON.stringify(customTaskTypes));
+  localStorage.setItem(getProfileStorageKey(TYPE_STORAGE_KEY), JSON.stringify(customTaskTypes));
+  queueCloudSave();
 }
 
 function saveWeeklyGoals() {
-  localStorage.setItem(GOAL_STORAGE_KEY, JSON.stringify(weeklyGoals));
+  localStorage.setItem(getProfileStorageKey(GOAL_STORAGE_KEY), JSON.stringify(weeklyGoals));
+  queueCloudSave();
 }
 
 function saveFeatureSettings() {
   localStorage.setItem(FEATURE_STORAGE_KEY, JSON.stringify(featureSettings));
+  queueCloudSave();
 }
 
 function saveTaskTemplates() {
-  localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(taskTemplates));
+  localStorage.setItem(getProfileStorageKey(TEMPLATE_STORAGE_KEY), JSON.stringify(taskTemplates));
+  queueCloudSave();
 }
 
 function loadTasks() {
   try {
-    return normalizeTasks(JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? []);
+    return normalizeTasks(JSON.parse(localStorage.getItem(getProfileStorageKey(STORAGE_KEY))) ?? []);
   } catch {
     return [];
   }
@@ -2439,7 +3169,7 @@ function loadTasks() {
 
 function loadCustomTaskTypes() {
   try {
-    return mergeCustomTaskTypes(JSON.parse(localStorage.getItem(TYPE_STORAGE_KEY)) ?? [], []);
+    return mergeCustomTaskTypes(JSON.parse(localStorage.getItem(getProfileStorageKey(TYPE_STORAGE_KEY))) ?? [], []);
   } catch {
     return [];
   }
@@ -2447,7 +3177,7 @@ function loadCustomTaskTypes() {
 
 function loadWeeklyGoals() {
   try {
-    return normalizeWeeklyGoals(JSON.parse(localStorage.getItem(GOAL_STORAGE_KEY)) ?? {});
+    return normalizeWeeklyGoals(JSON.parse(localStorage.getItem(getProfileStorageKey(GOAL_STORAGE_KEY))) ?? {});
   } catch {
     return normalizeWeeklyGoals({});
   }
@@ -2463,7 +3193,7 @@ function loadFeatureSettings() {
 
 function loadTaskTemplates() {
   try {
-    const savedTemplates = JSON.parse(localStorage.getItem(TEMPLATE_STORAGE_KEY)) ?? [];
+    const savedTemplates = JSON.parse(localStorage.getItem(getProfileStorageKey(TEMPLATE_STORAGE_KEY))) ?? [];
     return savedTemplates.map(normalizeTaskTemplate).filter((template) => template.title && template.type);
   } catch {
     return [];

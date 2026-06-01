@@ -17,6 +17,8 @@
   --accent-soft: rgba(46, 125, 91, 0.14);
   --accent-faint: rgba(46, 125, 91, 0.08);
   --accent-border: rgba(46, 125, 91, 0.35);
+  --selected-option-text: #172026;
+  --selected-depth-shadow: rgba(23, 32, 38, 0.16);
   --coral: #c95f4f;
   --blue: #2d6f9f;
   --gold: #b2832f;
@@ -44,6 +46,8 @@ body[data-theme="dark"] {
   --accent-soft: rgba(113, 200, 156, 0.16);
   --accent-faint: rgba(113, 200, 156, 0.08);
   --accent-border: rgba(113, 200, 156, 0.38);
+  --selected-option-text: #ffffff;
+  --selected-depth-shadow: rgba(0, 0, 0, 0.34);
   --coral: #f08a79;
   --blue: #87c7e8;
   --gold: #e4ba67;
@@ -90,6 +94,13 @@ textarea {
   justify-content: space-between;
   gap: 20px;
   margin-bottom: 20px;
+}
+
+.brand-group {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
 }
 
 .top-actions {
@@ -141,6 +152,7 @@ p {
   font-weight: 700;
 }
 
+.profile-button,
 .menu-button,
 .close-button {
   display: inline-grid;
@@ -151,6 +163,42 @@ p {
   color: var(--ink);
   cursor: pointer;
   font-weight: 900;
+}
+
+.profile-button {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px var(--accent-border), 0 0 18px var(--accent-soft);
+}
+
+.profile-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--green-dark);
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.profile-avatar-large {
+  width: 48px;
+  height: 48px;
+  font-size: 0.95rem;
 }
 
 .menu-button {
@@ -180,10 +228,10 @@ p {
   display: block;
 }
 
-.side-menu {
+.side-menu,
+.profile-menu {
   position: fixed;
   top: 0;
-  right: 0;
   z-index: 30;
   display: grid;
   width: min(360px, 100%);
@@ -191,15 +239,26 @@ p {
   align-content: start;
   gap: 18px;
   overflow-y: auto;
-  border-left: 1px solid var(--line);
   background: var(--surface);
   box-shadow: var(--shadow);
   padding: 24px;
-  transform: translateX(100%);
   transition: transform 180ms ease;
 }
 
-.side-menu.open {
+.side-menu {
+  right: 0;
+  border-left: 1px solid var(--line);
+  transform: translateX(100%);
+}
+
+.profile-menu {
+  left: 0;
+  border-right: 1px solid var(--line);
+  transform: translateX(-100%);
+}
+
+.side-menu.open,
+.profile-menu.open {
   transform: translateX(0);
 }
 
@@ -221,6 +280,209 @@ p {
   border-radius: 8px;
   background: var(--card);
   padding: 8px;
+}
+
+.profile-card {
+  display: grid;
+  gap: 14px;
+}
+
+.profile-current,
+.profile-row,
+.cloud-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.profile-current {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  padding: 14px;
+  text-align: left;
+}
+
+.profile-current-button {
+  cursor: pointer;
+}
+
+.profile-current-button:hover {
+  border-color: var(--green);
+  box-shadow: 0 0 0 1px var(--green);
+}
+
+.profile-photo-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.profile-edit-form {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 14px;
+}
+
+.profile-edit-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.profile-edit-actions .primary-button,
+.profile-edit-actions .secondary-button {
+  min-height: 38px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
+.profile-photo-upload {
+  position: relative;
+  display: grid;
+  min-height: 38px;
+  overflow: hidden;
+  place-items: center;
+  cursor: pointer;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
+.profile-photo-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.profile-photo-actions .danger-button {
+  min-height: 38px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
+.profile-current strong {
+  display: block;
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.profile-current small,
+.auth-session small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.profile-form {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 14px;
+}
+
+.profile-list {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+}
+
+.profile-row.active {
+  border-color: var(--green);
+  box-shadow: 0 0 0 1px var(--green), 0 0 18px var(--accent-soft);
+}
+
+.profile-row strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.92rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-row small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.profile-row .secondary-button,
+.profile-row .danger-button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.74rem;
+}
+
+.profile-row .secondary-button:disabled {
+  border-color: var(--green);
+  color: var(--selected-option-text);
+  opacity: 1;
+}
+
+.cloud-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.cloud-card h3 {
+  margin-bottom: 4px;
+}
+
+.cloud-card p {
+  margin-bottom: 0;
+  font-size: 0.8rem;
+}
+
+.auth-form,
+.auth-session {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-session {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.auth-session strong {
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.auth-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.auth-actions .primary-button,
+.auth-actions .secondary-button,
+.auth-actions .danger-button {
+  min-height: 38px;
+  padding: 0 10px;
+  font-size: 0.78rem;
 }
 
 .tab-button {
@@ -679,14 +941,34 @@ textarea:focus {
 
 .repeat-toggle {
   display: flex;
+  min-height: 42px;
   align-items: center;
+  justify-content: center;
   gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--field);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 900;
+  padding: 0 12px;
 }
 
-.repeat-toggle input,
-.weekday-picker input {
-  width: auto;
+.repeat-box input[type="checkbox"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.repeat-toggle:has(input:checked) {
+  border-color: var(--green);
+  background: var(--field);
+  color: var(--green-dark);
+  box-shadow: 0 0 0 1px var(--green), 0 0 18px var(--accent-soft);
 }
 
 .weekday-picker {
@@ -739,8 +1021,8 @@ textarea:focus {
   border: 1px solid var(--green);
   border-radius: 7px;
   background: transparent;
-  color: var(--green-dark);
-  box-shadow: 0 0 0 1px var(--accent-border), 0 0 18px var(--accent-soft);
+  color: var(--selected-option-text);
+  box-shadow: 0 0 0 1px var(--green);
   cursor: pointer;
   font-weight: 900;
 }
@@ -771,6 +1053,11 @@ textarea:focus {
   background: transparent;
   color: var(--coral);
   box-shadow: 0 0 0 1px rgba(201, 95, 79, 0.3), 0 0 18px rgba(201, 95, 79, 0.14);
+}
+
+.danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .day-summary {
@@ -843,10 +1130,65 @@ textarea:focus {
   padding: 0 13px;
 }
 
+.profile-row,
+.tab-button,
+.bottom-tabbar .tab-button,
+.theme-button,
+.colour-button,
+.setting-toggle,
+.repeat-toggle,
+.weekday-picker label,
+.view-button {
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
 .view-button.active {
   background: transparent;
   color: var(--green-dark);
   box-shadow: 0 0 0 1px var(--green), 0 0 18px var(--accent-soft);
+}
+
+.profile-row.active,
+.tab-button.active,
+.bottom-tabbar .tab-button.active,
+.theme-button.active,
+.colour-button.active,
+.setting-toggle:has(input:checked),
+.repeat-toggle:has(input:checked),
+.weekday-picker label:has(input:checked),
+.view-button.active {
+  border-color: var(--green);
+  background: transparent;
+  color: var(--selected-option-text);
+  box-shadow:
+    0 0 0 1px var(--green),
+    0 4px 0 color-mix(in srgb, var(--green), transparent 62%),
+    0 12px 22px var(--selected-depth-shadow);
+  transform: translateY(-2px);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.setting-toggle:has(input:checked) strong,
+.setting-toggle:has(input:checked) small,
+.profile-row.active strong,
+.profile-row.active small,
+.tab-button.active .tab-count,
+.bottom-tabbar .tab-button.active .tab-count {
+  color: var(--selected-option-text);
+}
+
+.tab-button.active .tab-count,
+.bottom-tabbar .tab-button.active .tab-count {
+  background: transparent;
+  box-shadow: 0 0 0 1px var(--green);
 }
 
 .grid-zoom-controls {
@@ -871,8 +1213,8 @@ textarea:focus {
   border: 1px solid var(--green);
   border-radius: 6px;
   background: transparent;
-  color: var(--green-dark);
-  box-shadow: 0 0 0 1px var(--accent-border), 0 0 18px var(--accent-soft);
+  color: var(--selected-option-text);
+  box-shadow: 0 0 0 1px var(--green);
   cursor: pointer;
   font-size: 1.05rem;
   font-weight: 900;
@@ -1069,8 +1411,8 @@ textarea:focus {
   height: 42px;
   border-color: var(--line);
   background: transparent;
-  color: var(--ink);
-  box-shadow: 0 0 0 1px var(--line), 0 0 16px rgba(23, 32, 38, 0.06);
+  color: var(--selected-option-text);
+  box-shadow: 0 0 0 1px var(--line);
 }
 
 .icon-button:disabled {
@@ -1081,15 +1423,15 @@ textarea:focus {
 .icon-button.start {
   border-color: var(--green);
   background: transparent;
-  color: var(--green-dark) !important;
-  box-shadow: 0 0 0 1px var(--accent-border), 0 0 18px var(--accent-soft);
+  color: var(--selected-option-text) !important;
+  box-shadow: 0 0 0 1px var(--green);
 }
 
 .icon-button.finish {
   border-color: var(--green);
   background: transparent;
-  color: var(--green-dark) !important;
-  box-shadow: 0 0 0 1px var(--accent-border), 0 0 18px var(--accent-soft);
+  color: var(--selected-option-text) !important;
+  box-shadow: 0 0 0 1px var(--green);
 }
 
 .icon-button.finish:disabled {
