@@ -18,7 +18,6 @@
   --accent-faint: rgba(46, 125, 91, 0.08);
   --accent-border: rgba(46, 125, 91, 0.35);
   --selected-option-text: #172026;
-  --selected-depth-shadow: rgba(23, 32, 38, 0.16);
   --coral: #c95f4f;
   --blue: #2d6f9f;
   --gold: #b2832f;
@@ -47,7 +46,6 @@ body[data-theme="dark"] {
   --accent-faint: rgba(113, 200, 156, 0.08);
   --accent-border: rgba(113, 200, 156, 0.38);
   --selected-option-text: #ffffff;
-  --selected-depth-shadow: rgba(0, 0, 0, 0.34);
   --coral: #f08a79;
   --blue: #87c7e8;
   --gold: #e4ba67;
@@ -285,6 +283,7 @@ p {
 .profile-card {
   display: grid;
   gap: 14px;
+  overflow: visible;
 }
 
 .profile-current,
@@ -395,6 +394,7 @@ p {
 .profile-list {
   display: grid;
   gap: 8px;
+  overflow: visible;
 }
 
 .profile-row {
@@ -484,6 +484,7 @@ p {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  overflow: visible;
 }
 
 .auth-form .auth-actions {
@@ -569,7 +570,7 @@ p {
   color: var(--muted);
   cursor: pointer;
   font-weight: 900;
-  padding: 6px 3px;
+  padding: 7px 8px 6px;
 }
 
 .bottom-tabbar .tab-button.active {
@@ -601,8 +602,8 @@ p {
 
 .bottom-tabbar .tab-count {
   position: absolute;
-  top: 4px;
-  right: 6px;
+  top: 7px;
+  right: 10px;
   min-width: 18px;
   min-height: 18px;
   background: var(--accent-soft);
@@ -628,6 +629,7 @@ p {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+  overflow: visible;
 }
 
 .theme-button {
@@ -706,6 +708,7 @@ p {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+  overflow: visible;
 }
 
 .colour-button {
@@ -859,6 +862,7 @@ p {
 .task-form {
   display: grid;
   gap: 18px;
+  overflow: visible;
   padding: 24px;
 }
 
@@ -867,6 +871,7 @@ p {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: end;
+  overflow: visible;
 }
 
 .template-tools .secondary-button {
@@ -903,6 +908,25 @@ textarea {
   color: var(--ink);
   outline: none;
   padding: 12px 13px;
+}
+
+select {
+  position: relative;
+  display: block;
+  cursor: pointer;
+  font: inherit;
+  line-height: normal;
+  color-scheme: inherit;
+  z-index: 1;
+}
+
+select option {
+  background: var(--field);
+  color: var(--ink);
+}
+
+select:focus {
+  z-index: 2;
 }
 
 input[type="date"],
@@ -988,6 +1012,7 @@ textarea:focus {
   display: grid;
   grid-template-columns: repeat(7, minmax(58px, 1fr));
   gap: 8px;
+  overflow: visible;
 }
 
 .weekday-picker label {
@@ -1017,6 +1042,7 @@ textarea:focus {
   gap: 14px;
   min-width: 0;
   max-width: 100%;
+  overflow: visible;
 }
 
 .field-row-three {
@@ -1025,7 +1051,7 @@ textarea:focus {
 
 .field-row > label {
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .primary-button,
@@ -1093,6 +1119,7 @@ textarea:focus {
   justify-content: space-between;
   gap: 18px;
   margin-bottom: 16px;
+  overflow: visible;
   padding: 18px;
   box-shadow: none;
 }
@@ -1111,6 +1138,7 @@ textarea:focus {
   justify-content: flex-end;
   gap: 10px;
   min-width: min(560px, 100%);
+  overflow: visible;
 }
 
 .schedule-controls .view-only-grid,
@@ -1129,6 +1157,7 @@ textarea:focus {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--field);
+  overflow: visible;
   padding: 4px;
 }
 
@@ -1177,11 +1206,8 @@ textarea:focus {
   border-color: var(--green);
   background: transparent;
   color: var(--selected-option-text);
-  box-shadow:
-    0 0 0 1px var(--green),
-    0 4px 0 color-mix(in srgb, var(--green), transparent 62%),
-    0 12px 22px var(--selected-depth-shadow);
-  transform: translateY(-2px);
+  box-shadow: 0 0 0 1px var(--green);
+  transform: none;
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
@@ -1708,6 +1734,7 @@ textarea:focus {
 .edit-modal form {
   display: grid;
   gap: 16px;
+  overflow: visible;
 }
 
 .edit-actions {
@@ -1986,6 +2013,7 @@ textarea:focus {
   display: grid;
   gap: 16px;
   margin-bottom: 16px;
+  overflow: visible;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--card);
@@ -2005,12 +2033,14 @@ textarea:focus {
   display: grid;
   grid-template-columns: minmax(220px, 360px);
   gap: 12px;
+  overflow: visible;
 }
 
 .goal-controls label {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--field);
+  overflow: visible;
   padding: 12px;
 }
 
@@ -2425,7 +2455,7 @@ textarea:focus {
 
   .task-form {
     padding: 18px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .date-time-row {
@@ -2540,6 +2570,7 @@ textarea:focus {
 
   .bottom-tabbar .tab-button {
     min-height: 48px;
+    padding: 7px 7px 6px;
   }
 
   .tab-label {
@@ -2552,7 +2583,8 @@ textarea:focus {
   }
 
   .bottom-tabbar .tab-count {
-    right: 4px;
+    top: 6px;
+    right: 8px;
     min-width: 17px;
     min-height: 17px;
     font-size: 0.58rem;
