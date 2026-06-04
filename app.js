@@ -3,11 +3,13 @@ const THEME_STORAGE_KEY = "daily-task-scheduler.theme";
 const ACCENT_STORAGE_KEY = "daily-task-scheduler.accent";
 const TYPE_STORAGE_KEY = "daily-task-scheduler.custom-types";
 const GOAL_STORAGE_KEY = "daily-task-scheduler.weekly-goals";
+const WEEKLY_REPORT_SEEN_STORAGE_KEY = "daily-task-scheduler.weekly-report-seen";
 const OVERLAP_DISMISS_STORAGE_KEY = "daily-task-scheduler.dismissed-overlap";
 const TIMER_STORAGE_KEY = "daily-task-scheduler.active-timer";
 const FEATURE_STORAGE_KEY = "daily-task-scheduler.feature-settings";
 const TEMPLATE_STORAGE_KEY = "daily-task-scheduler.task-templates";
 const MISSED_COLLAPSE_STORAGE_KEY = "daily-task-scheduler.missed-collapsed";
+const STREAK_CELEBRATION_STORAGE_KEY = "daily-task-scheduler.streak-celebrated-date";
 const PROFILE_STORAGE_KEY = "daily-task-scheduler.profiles";
 const ACTIVE_PROFILE_STORAGE_KEY = "daily-task-scheduler.active-profile";
 const SUPABASE_URL = "https://xaacjrtkzvphztifnywm.supabase.co";
@@ -17,13 +19,25 @@ const PROFILE_SCOPED_STORAGE_KEYS = [
   STORAGE_KEY,
   TYPE_STORAGE_KEY,
   GOAL_STORAGE_KEY,
+  WEEKLY_REPORT_SEEN_STORAGE_KEY,
   OVERLAP_DISMISS_STORAGE_KEY,
   TIMER_STORAGE_KEY,
   TEMPLATE_STORAGE_KEY,
   MISSED_COLLAPSE_STORAGE_KEY,
+  STREAK_CELEBRATION_STORAGE_KEY,
 ];
 const SCHEDULE_DAYS_TO_SHOW = 30;
 const GRID_MINUTE_HEIGHT = 2.05;
+const GRID_MOVE_HOLD_MS = 600;
+const GRID_MOVE_CANCEL_DISTANCE = 12;
+const GRID_MOVE_SNAP_MINUTES = 15;
+const TASK_DOUBLE_TAP_MS = 380;
+const TASK_DOUBLE_TAP_DISTANCE = 28;
+const TASK_SWIPE_ACTIVATE_DISTANCE = 12;
+const TASK_SWIPE_DELETE_DISTANCE = 96;
+const STREAK_MINUTES_TO_KEEP = 10;
+const TASK_REMINDER_INTERVAL_MS = 30 * 1000;
+const TASK_REMINDER_GRACE_MS = 2 * 60 * 1000;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const BUILT_IN_TASK_TYPES = ["Focus", "Personal", "Study", "Health", "Errand"];
 const PRIORITY_LEVELS = ["Low", "Medium", "High"];
@@ -38,7 +52,6 @@ const completedEmptyState = document.querySelector("#completedEmptyState");
 const taskCount = document.querySelector("#taskCount");
 const completedCount = document.querySelector("#completedCount");
 const completedPoints = document.querySelector("#completedPoints");
-const dailyDashboard = document.querySelector("#dailyDashboard");
 const missedTasksPanel = document.querySelector("#missedTasksPanel");
 const missedTaskList = document.querySelector("#missedTaskList");
 const collapseMissedButton = document.querySelector("#collapseMissedButton");
@@ -50,6 +63,9 @@ const featureToggleInputs = document.querySelectorAll("[data-feature-toggle]");
 const todayCount = document.querySelector("#todayCount");
 const todaySummary = document.querySelector("#todaySummary");
 const todayLabel = document.querySelector("#todayLabel");
+const todayXpValue = document.querySelector("#todayXpValue");
+const topStreakPill = document.querySelector("#topStreakPill");
+const topStreakValue = document.querySelector("#topStreakValue");
 const scheduleFilter = document.querySelector("#scheduleFilter");
 const scheduleGridRange = document.querySelector("#scheduleGridRange");
 const scheduleControls = document.querySelector(".schedule-controls");
@@ -102,6 +118,9 @@ const sideMenu = document.querySelector("#sideMenu");
 const drawerOverlay = document.querySelector("#drawerOverlay");
 const colourThemeButtons = document.querySelectorAll(".colour-button");
 const focusOverlay = document.querySelector("#focusOverlay");
+const streakCelebrationOverlay = document.querySelector("#streakCelebrationOverlay");
+const weeklyReportOverlay = document.querySelector("#weeklyReportOverlay");
+const appToast = document.querySelector("#appToast");
 const editTaskOverlay = document.querySelector("#editTaskOverlay");
 const editTaskForm = document.querySelector("#editTaskForm");
 const editTaskIdInput = document.querySelector("#editTaskId");
@@ -144,6 +163,16 @@ let currentTypeStreaks = new Map();
 let missedTasksCollapsed = localStorage.getItem(getProfileStorageKey(MISSED_COLLAPSE_STORAGE_KEY)) === "true";
 let holdToEditTimer = null;
 let holdToEditTarget = null;
+let gridMoveHoldTimer = null;
+let gridMoveState = null;
+let lastTaskTap = null;
+let suppressTaskTapUntil = 0;
+let taskSwipeState = null;
+let taskReminderInterval = null;
+let reminderOccurrences = [];
+let sentTaskReminderKeys = new Set();
+let appToastTimer = null;
+let streakCelebrationTimer = null;
 
 const TASK_TYPE_STYLES = {
   Focus: { color: "#2d6f9f", bg: "rgba(45, 111, 159, 0.14)" },
@@ -154,11 +183,11 @@ const TASK_TYPE_STYLES = {
 };
 
 const DEFAULT_FEATURE_SETTINGS = {
-  dailyDashboard: true,
   streaks: true,
   priorities: true,
   missedTasks: true,
   focusMode: false,
+  taskReminders: false,
 };
 
 featureSettings = loadFeatureSettings();
@@ -239,6 +268,10 @@ const ACCENT_THEMES = {
     light: { accent: "#b2832f", strong: "#7c5d20", soft: "rgba(178, 131, 47, 0.16)", faint: "rgba(178, 131, 47, 0.08)", border: "rgba(178, 131, 47, 0.36)" },
     dark: { accent: "#e4ba67", strong: "#f2d99c", soft: "rgba(228, 186, 103, 0.17)", faint: "rgba(228, 186, 103, 0.08)", border: "rgba(228, 186, 103, 0.4)" },
   },
+  sleek: {
+    light: { accent: "#6f777c", strong: "#3f474c", soft: "rgba(111, 119, 124, 0.14)", faint: "rgba(111, 119, 124, 0.08)", border: "rgba(111, 119, 124, 0.35)" },
+    dark: { accent: "#aeb6ba", strong: "#d6dde0", soft: "rgba(174, 182, 186, 0.16)", faint: "rgba(174, 182, 186, 0.08)", border: "rgba(174, 182, 186, 0.38)" },
+  },
 };
 
 const today = new Date();
@@ -273,12 +306,15 @@ colourThemeButtons.forEach((button) => {
 });
 
 featureToggleInputs.forEach((input) => {
-  input.addEventListener("change", () => {
+  input.addEventListener("change", async () => {
     featureSettings = {
       ...featureSettings,
       [input.dataset.featureToggle]: input.checked,
     };
     saveFeatureSettings();
+    if (input.dataset.featureToggle === "taskReminders" && input.checked) {
+      await requestTaskReminderPermission();
+    }
     applyFeatureVisibility();
     render();
   });
@@ -385,11 +421,16 @@ taskForm.addEventListener("submit", (event) => {
   render();
 });
 
-taskList.addEventListener("click", (event) => {
+taskList.addEventListener("click", handleTaskAction);
+scheduleGrid.addEventListener("click", handleTaskAction);
+
+function handleTaskAction(event) {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
 
-  const card = button.closest("[data-task-id]");
+  const card = button.closest("[data-task-id][data-occurrence-date]");
+  if (!card) return;
+
   const taskId = card.dataset.taskId;
   const occurrenceDate = card.dataset.occurrenceDate;
 
@@ -403,6 +444,8 @@ taskList.addEventListener("click", (event) => {
   }
 
   if (button.dataset.action === "start") {
+    if (activeTimer && !isActiveTimerFor({ id: taskId, occurrenceDate })) return;
+
     const sourceTask = tasks.find((task) => task.id === taskId);
     activeTimer = {
       taskId,
@@ -414,28 +457,41 @@ taskList.addEventListener("click", (event) => {
   }
 
   if (button.dataset.action === "finish") {
-    if (!isActiveTimerFor({ id: taskId, occurrenceDate })) return;
-
-    const earnedPoints = calculateTimerEarnedPoints(activeTimer);
-    const actualMinutes = calculateTimerElapsedMinutes(activeTimer);
-    tasks = tasks.map((task) => markTaskComplete(task, taskId, occurrenceDate, earnedPoints, actualMinutes));
-    clearActiveTimer();
+    if (!finishActiveTask(taskId, occurrenceDate)) return;
   }
 
   if (button.dataset.action === "delete") {
-    tasks = tasks.filter((task) => task.id !== taskId);
-    clearActiveTimerFor(taskId, occurrenceDate);
+    deleteTask(taskId, occurrenceDate);
   }
 
   saveTasks();
   render();
+}
+
+taskList.addEventListener("pointerdown", startTaskSwipe);
+taskList.addEventListener("pointermove", updateTaskSwipe);
+taskList.addEventListener("pointerup", finishTaskSwipe);
+taskList.addEventListener("lostpointercapture", cancelTaskSwipe);
+taskList.addEventListener("pointerdown", startHoldToEdit);
+taskList.addEventListener("pointerup", clearHoldToEdit);
+taskList.addEventListener("pointerup", handleTaskDoubleTap);
+taskList.addEventListener("pointerleave", () => {
+  clearHoldToEdit();
+  cancelInactiveTaskSwipe();
+});
+taskList.addEventListener("pointercancel", () => {
+  clearHoldToEdit();
+  cancelTaskSwipe();
 });
 
+scheduleGrid.addEventListener("pointerdown", startGridTaskMove);
+scheduleGrid.addEventListener("pointermove", updateGridTaskMove);
+scheduleGrid.addEventListener("pointerup", finishGridTaskMove);
+scheduleGrid.addEventListener("pointerup", handleTaskDoubleTap);
+scheduleGrid.addEventListener("pointercancel", cancelGridTaskMove);
+scheduleGrid.addEventListener("pointerleave", cancelInactiveGridTaskMove);
+
 [taskList, scheduleGrid].forEach((container) => {
-  container.addEventListener("pointerdown", startHoldToEdit);
-  container.addEventListener("pointerup", clearHoldToEdit);
-  container.addEventListener("pointerleave", clearHoldToEdit);
-  container.addEventListener("pointercancel", clearHoldToEdit);
   container.addEventListener("contextmenu", (event) => {
     if (event.target.closest("[data-task-id][data-occurrence-date]")) {
       event.preventDefault();
@@ -491,12 +547,7 @@ focusOverlay.addEventListener("click", (event) => {
   if (!button) return;
 
   if (button.dataset.focusAction === "finish" && activeTimer) {
-    const earnedPoints = calculateTimerEarnedPoints(activeTimer);
-    const actualMinutes = calculateTimerElapsedMinutes(activeTimer);
-    tasks = tasks.map((task) =>
-      markTaskComplete(task, activeTimer.taskId, activeTimer.occurrenceDate, earnedPoints, actualMinutes),
-    );
-    clearActiveTimer();
+    finishActiveTask(activeTimer.taskId, activeTimer.occurrenceDate);
     saveTasks();
   }
 
@@ -510,6 +561,30 @@ focusOverlay.addEventListener("click", (event) => {
   }
 
   render();
+});
+
+streakCelebrationOverlay?.addEventListener("click", (event) => {
+  if (event.target.closest("[data-streak-action='close']") || event.target === streakCelebrationOverlay) {
+    hideStreakCelebration();
+  }
+});
+
+weeklyReportOverlay?.addEventListener("click", (event) => {
+  if (event.target.closest("[data-weekly-report-action='close']") || event.target === weeklyReportOverlay) {
+    dismissWeeklyReportOverlay();
+  }
+});
+
+appToast?.addEventListener("click", (event) => {
+  if (event.target.closest("[data-toast-action='close']")) {
+    hideAppToast();
+  }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    checkTaskReminders();
+  }
 });
 
 overlapAlert.addEventListener("click", (event) => {
@@ -533,6 +608,7 @@ overlapAlert.addEventListener("click", (event) => {
 
 initializeCloudAuth();
 render();
+setInterval(refreshTopStreakStatus, 60 * 1000);
 
 function switchTab(tabName) {
   document.querySelectorAll(".tab-button").forEach((button) => {
@@ -560,11 +636,15 @@ function render() {
   taskCount.textContent = tasks.length;
   completedCount.textContent = completedToday.length;
   completedPoints.textContent = formatPoints(pointsToday);
+  todayXpValue.textContent = formatPoints(pointsToday);
+  renderTopStreakStatus(completedHistory, getTopStreakDays(completedHistory));
   renderTodaySummary(occurrences);
-  renderDailyDashboard(occurrences, completedHistory);
   renderMissedTasks();
   renderFocusOverlay(occurrences);
   applyFeatureVisibility();
+  reminderOccurrences = occurrences;
+  ensureTaskReminderInterval();
+  checkTaskReminders(occurrences);
 
   scheduleViewButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.view === scheduleView);
@@ -584,6 +664,7 @@ function render() {
   completedEmptyState.classList.toggle("visible", completedToday.length === 0);
   weeklyReport.innerHTML = createWeeklyReport(completedHistory);
   statsGrid.innerHTML = createStatsPanel(completedHistory);
+  renderWeeklyReportOverlay(completedHistory);
 }
 
 function buildScheduleOccurrences() {
@@ -693,97 +774,280 @@ function renderTodaySummary(occurrences) {
       : `${remaining} task${remaining === 1 ? "" : "s"} still planned for today.`;
 }
 
-function renderDailyDashboard(occurrences) {
-  if (!featureSettings.dailyDashboard) {
-    dailyDashboard.classList.add("hidden");
-    dailyDashboard.innerHTML = "";
+function refreshTopStreakStatus() {
+  const completedHistory = buildCompletedHistory();
+  renderTopStreakStatus(completedHistory, getTopStreakDays(completedHistory));
+}
+
+function getTopStreakDays(completedHistory) {
+  if (!featureSettings.streaks) return 0;
+  return calculateCurrentStreak(getQualifiedStreakDates(completedHistory));
+}
+
+function renderTopStreakStatus(completedHistory, streakDays) {
+  if (!topStreakPill || !topStreakValue) return;
+
+  const todayMinutes = getCompletedMinutesForDate(completedHistory, todayISO);
+  const minutesNeeded = Math.max(STREAK_MINUTES_TO_KEEP - todayMinutes, 0);
+  const streakState = getStreakState(minutesNeeded);
+  const minuteLabel = minutesNeeded === 1 ? "minute" : "minutes";
+
+  topStreakValue.textContent = String(featureSettings.streaks ? streakDays : 0);
+  topStreakPill.classList.remove("streak-safe", "streak-watch", "streak-low", "streak-critical");
+  topStreakPill.classList.add(streakState);
+
+  if (!featureSettings.streaks) {
+    topStreakPill.title = "Task streaks are turned off.";
+    topStreakPill.setAttribute("aria-label", "Task streaks are turned off");
     return;
   }
 
-  const todaysTasks = occurrences.filter((task) => task.occurrenceDate === todayISO && !task.skipped);
-  const completed = todaysTasks.filter((task) => task.done);
-  const remaining = todaysTasks.filter((task) => !task.done);
-  const pointsToday = completed.reduce((total, task) => total + calculatePoints(task), 0);
-  const minutesToday = completed.reduce((total, task) => total + calculateCompletedMinutes(task), 0);
-  const activeTask = activeTimer
-    ? occurrences.find((task) => isActiveTimerFor(task))
-    : null;
-  const nextTask = activeTask ?? getNextTodayTask(remaining);
-
-  dailyDashboard.classList.remove("hidden");
-  dailyDashboard.innerHTML = `
-    <div class="dashboard-header">
-      <div>
-        <span class="report-kicker">Daily dashboard</span>
-        <h2>Today at a glance</h2>
-      </div>
-      <strong>${completed.length}/${todaysTasks.length}</strong>
-    </div>
-    <div class="dashboard-grid">
-      <article class="dashboard-card">
-        <span>xp</span>
-        <strong>${formatPoints(pointsToday)}</strong>
-        <small>${formatMinutesAsHours(minutesToday)} completed</small>
-      </article>
-      <article class="dashboard-card">
-        <span>Remaining</span>
-        <strong>${remaining.length}</strong>
-        <small>${todaysTasks.length === 0 ? "No tasks today" : "tasks left today"}</small>
-      </article>
-      <article class="dashboard-card dashboard-next">
-        <span>${activeTask ? "Current task" : "Next task"}</span>
-        ${createDashboardTaskPreview(nextTask)}
-      </article>
-      ${createDashboardStreakCard()}
-    </div>
-  `;
-}
-
-function createDashboardTaskPreview(task) {
-  if (!task) {
-    return `
-      <strong>Clear</strong>
-      <small>Nothing waiting right now</small>
-    `;
+  if (minutesNeeded === 0) {
+    topStreakPill.title = `Streak secured today with ${formatMinutesAsHours(todayMinutes)} completed.`;
+    topStreakPill.setAttribute("aria-label", `${streakDays} day streak secured today`);
+    return;
   }
 
-  return `
-    <strong>${escapeHTML(task.title)}</strong>
-    <small>${formatTimeRange(task)} &middot; ${escapeHTML(task.type)}</small>
-  `;
+  topStreakPill.title = `${minutesNeeded} ${minuteLabel} left today to keep your streak.`;
+  topStreakPill.setAttribute(
+    "aria-label",
+    `${streakDays} day streak. ${minutesNeeded} ${minuteLabel} left today to keep it.`,
+  );
 }
 
-function createDashboardStreakCard() {
-  if (!featureSettings.streaks) return "";
+function getStreakState(minutesNeeded) {
+  if (minutesNeeded <= 0) return "streak-safe";
 
-  const streaks = [...currentTypeStreaks.entries()]
-    .filter(([, days]) => days > 0)
-    .sort((first, second) => second[1] - first[1])
-    .slice(0, 3);
-
-  const streakList = streaks.length
-    ? streaks
-        .map(
-          ([type, days]) => `
-            <span class="streak-pill">${escapeHTML(type)} ${days}d</span>
-          `,
-        )
-        .join("")
-    : `<small>Complete a task to start a streak.</small>`;
-
-  return `
-    <article class="dashboard-card dashboard-streaks">
-      <span>Streaks</span>
-      <strong>${streaks[0]?.[1] ?? 0} days</strong>
-      <div class="streak-row">${streakList}</div>
-    </article>
-  `;
+  const dayProgress = getDayProgress();
+  if (dayProgress >= 0.92) return "streak-critical";
+  if (dayProgress >= 0.8) return "streak-low";
+  if (dayProgress >= 0.66) return "streak-watch";
+  return "streak-safe";
 }
 
-function getNextTodayTask(todaysTasks) {
-  const now = new Date();
-  const upcoming = todaysTasks.find((task) => new Date(`${task.occurrenceDate}T${task.time}`) >= now);
-  return upcoming ?? todaysTasks[0] ?? null;
+function getDayProgress(now = new Date()) {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  return clamp((now - start) / (end - start), 0, 1);
+}
+
+function getQualifiedStreakDates(completedHistory) {
+  const minutesByDate = new Map();
+
+  completedHistory.forEach((task) => {
+    const minutes = minutesByDate.get(task.occurrenceDate) ?? 0;
+    minutesByDate.set(task.occurrenceDate, minutes + calculateCompletedMinutes(task));
+  });
+
+  return new Set(
+    [...minutesByDate.entries()]
+      .filter(([, minutes]) => minutes >= STREAK_MINUTES_TO_KEEP)
+      .map(([date]) => date),
+  );
+}
+
+function getCompletedMinutesForDate(completedHistory, date) {
+  return completedHistory
+    .filter((task) => task.occurrenceDate === date)
+    .reduce((total, task) => total + calculateCompletedMinutes(task), 0);
+}
+
+function deleteTask(taskId, occurrenceDate) {
+  tasks = tasks.filter((task) => task.id !== taskId);
+  clearActiveTimerFor(taskId, occurrenceDate);
+}
+
+function finishActiveTask(taskId, occurrenceDate) {
+  if (!isActiveTimerFor({ id: taskId, occurrenceDate })) return false;
+
+  const previousStreakDays = getTopStreakDays(buildCompletedHistory());
+  const earnedPoints = calculateTimerEarnedPoints(activeTimer);
+  const actualMinutes = calculateTimerElapsedMinutes(activeTimer);
+
+  tasks = tasks.map((task) => markTaskComplete(task, taskId, occurrenceDate, earnedPoints, actualMinutes));
+  clearActiveTimer();
+  maybeShowStreakCelebration(previousStreakDays);
+  return true;
+}
+
+function maybeShowStreakCelebration(previousStreakDays) {
+  if (!featureSettings.streaks) return;
+
+  const completedHistory = buildCompletedHistory();
+  const nextStreakDays = getTopStreakDays(completedHistory);
+  const todayMinutes = getCompletedMinutesForDate(completedHistory, todayISO);
+  const alreadyCelebrated = localStorage.getItem(getProfileStorageKey(STREAK_CELEBRATION_STORAGE_KEY)) === todayISO;
+
+  if (alreadyCelebrated || todayMinutes < STREAK_MINUTES_TO_KEEP || nextStreakDays <= previousStreakDays) return;
+
+  localStorage.setItem(getProfileStorageKey(STREAK_CELEBRATION_STORAGE_KEY), todayISO);
+  queueCloudSave();
+  showStreakCelebration(nextStreakDays, todayMinutes);
+}
+
+function showStreakCelebration(streakDays, completedMinutes) {
+  if (!streakCelebrationOverlay) return;
+
+  clearTimeout(streakCelebrationTimer);
+  streakCelebrationOverlay.classList.add("visible");
+  streakCelebrationOverlay.innerHTML = `
+    <section class="streak-celebration-card" role="dialog" aria-modal="false" aria-label="Streak increased">
+      <div class="streak-burst" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div class="streak-hero" aria-hidden="true">
+        <svg class="streak-ring" viewBox="0 0 140 140">
+          <circle class="streak-ring-track" cx="70" cy="70" r="58"></circle>
+          <circle class="streak-ring-progress" cx="70" cy="70" r="58"></circle>
+        </svg>
+        <div class="streak-flame">
+          <span class="streak-flame-glow"></span>
+          <span class="streak-flame-icon">&#128293;</span>
+        </div>
+      </div>
+      <p class="report-kicker">Streak powered up</p>
+      <h2><span>${streakDays}</span> day streak</h2>
+      <p>You locked in today with ${formatMinutesAsHours(completedMinutes)} completed.</p>
+      <div class="streak-mini-progress" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+      <button class="primary-button" data-streak-action="close" type="button">Keep going</button>
+    </section>
+  `;
+
+  streakCelebrationTimer = setTimeout(hideStreakCelebration, 5600);
+}
+
+function hideStreakCelebration() {
+  if (!streakCelebrationOverlay) return;
+
+  clearTimeout(streakCelebrationTimer);
+  streakCelebrationTimer = null;
+  streakCelebrationOverlay.classList.remove("visible");
+  streakCelebrationOverlay.innerHTML = "";
+}
+
+function startTaskSwipe(event) {
+  if (scheduleView !== "list") return;
+  if (event.button !== undefined && event.button !== 0) return;
+  if (event.isPrimary === false) return;
+  if (event.target.closest("button, input, select, textarea, a")) return;
+
+  const taskCard = event.target.closest(".task-card[data-task-id][data-occurrence-date]");
+  if (!taskCard || !taskList.contains(taskCard)) return;
+
+  cancelTaskSwipe();
+  taskSwipeState = {
+    pointerId: event.pointerId,
+    taskId: taskCard.dataset.taskId,
+    occurrenceDate: taskCard.dataset.occurrenceDate,
+    sourceElement: taskCard,
+    startX: event.clientX,
+    startY: event.clientY,
+    active: false,
+  };
+}
+
+function updateTaskSwipe(event) {
+  if (!taskSwipeState || taskSwipeState.pointerId !== event.pointerId) return;
+
+  const deltaX = event.clientX - taskSwipeState.startX;
+  const deltaY = event.clientY - taskSwipeState.startY;
+  const absX = Math.abs(deltaX);
+  const absY = Math.abs(deltaY);
+
+  if (!taskSwipeState.active) {
+    if (absX < TASK_SWIPE_ACTIVATE_DISTANCE && absY < TASK_SWIPE_ACTIVATE_DISTANCE) return;
+
+    if (deltaX >= 0 || absY > absX) {
+      cancelTaskSwipe();
+      return;
+    }
+
+    taskSwipeState.active = true;
+    clearHoldToEdit();
+    taskSwipeState.sourceElement.classList.add("swiping");
+
+    try {
+      taskSwipeState.sourceElement.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is optional; the swipe still works without it.
+    }
+  }
+
+  event.preventDefault();
+  const offset = clamp(deltaX, -132, 0);
+  taskSwipeState.sourceElement.style.transform = `translateX(${offset}px)`;
+  taskSwipeState.sourceElement.classList.toggle(
+    "swipe-delete-ready",
+    Math.abs(offset) >= TASK_SWIPE_DELETE_DISTANCE,
+  );
+}
+
+function finishTaskSwipe(event) {
+  if (!taskSwipeState || taskSwipeState.pointerId !== event.pointerId) return;
+
+  const state = taskSwipeState;
+  const deltaX = event.clientX - state.startX;
+  const shouldDelete = state.active && deltaX <= -TASK_SWIPE_DELETE_DISTANCE;
+
+  if (state.active) {
+    event.preventDefault();
+    suppressTaskTapUntil = Date.now() + 420;
+    lastTaskTap = null;
+    clearHoldToEdit();
+  }
+
+  resetTaskSwipeCard(state.sourceElement);
+  releaseTaskSwipePointer(state);
+  taskSwipeState = null;
+
+  if (!shouldDelete) return;
+
+  deleteTask(state.taskId, state.occurrenceDate);
+  saveTasks();
+  render();
+}
+
+function cancelInactiveTaskSwipe() {
+  if (taskSwipeState?.active) return;
+  cancelTaskSwipe();
+}
+
+function cancelTaskSwipe(event) {
+  if (!taskSwipeState) return;
+  if (event?.pointerId !== undefined && taskSwipeState.pointerId !== event.pointerId) return;
+
+  const state = taskSwipeState;
+  if (state.active) {
+    suppressTaskTapUntil = Date.now() + 260;
+    lastTaskTap = null;
+  }
+
+  resetTaskSwipeCard(state.sourceElement);
+  releaseTaskSwipePointer(state);
+  taskSwipeState = null;
+}
+
+function resetTaskSwipeCard(taskCard) {
+  taskCard?.classList.remove("swiping", "swipe-delete-ready");
+  if (taskCard) {
+    taskCard.style.transform = "";
+  }
+}
+
+function releaseTaskSwipePointer(state) {
+  try {
+    if (state.sourceElement?.hasPointerCapture?.(state.pointerId)) {
+      state.sourceElement.releasePointerCapture(state.pointerId);
+    }
+  } catch {
+    // The browser may already have released it.
+  }
 }
 
 function startHoldToEdit(event) {
@@ -809,8 +1073,262 @@ function clearHoldToEdit() {
   holdToEditTarget = null;
 }
 
+function handleTaskDoubleTap(event) {
+  if (event.button !== undefined && event.button !== 0) return;
+  if (event.target.closest("button, input, select, textarea, a")) return;
+  if (Date.now() < suppressTaskTapUntil) return;
+
+  const taskCard = event.target.closest("[data-task-id][data-occurrence-date]");
+  if (!taskCard) return;
+
+  const tap = {
+    key: `${taskCard.dataset.taskId}:${taskCard.dataset.occurrenceDate}`,
+    time: Date.now(),
+    x: event.clientX,
+    y: event.clientY,
+  };
+  const isDoubleTap = lastTaskTap
+    && lastTaskTap.key === tap.key
+    && tap.time - lastTaskTap.time <= TASK_DOUBLE_TAP_MS
+    && Math.hypot(tap.x - lastTaskTap.x, tap.y - lastTaskTap.y) <= TASK_DOUBLE_TAP_DISTANCE;
+
+  if (!isDoubleTap) {
+    lastTaskTap = tap;
+    return;
+  }
+
+  event.preventDefault();
+  lastTaskTap = null;
+  openEditTask(taskCard.dataset.taskId, taskCard.dataset.occurrenceDate);
+}
+
+function startGridTaskMove(event) {
+  if (scheduleView !== "grid") return;
+  if (event.button !== undefined && event.button !== 0) return;
+  if (event.isPrimary === false) return;
+  if (event.target.closest("button, input, select, textarea, a")) return;
+
+  const taskCard = event.target.closest(".timeline-task[data-task-id][data-occurrence-date]");
+  if (!taskCard || !scheduleGrid.contains(taskCard)) return;
+
+  cancelGridTaskMove();
+  gridMoveState = {
+    pointerId: event.pointerId,
+    taskId: taskCard.dataset.taskId,
+    occurrenceDate: taskCard.dataset.occurrenceDate,
+    sourceElement: taskCard,
+    startX: event.clientX,
+    startY: event.clientY,
+    lastX: event.clientX,
+    lastY: event.clientY,
+    active: false,
+    drop: null,
+    preview: null,
+  };
+
+  gridMoveHoldTimer = setTimeout(activateGridTaskMove, GRID_MOVE_HOLD_MS);
+}
+
+function activateGridTaskMove() {
+  if (!gridMoveState) return;
+
+  const sourceTask = tasks.find((task) => task.id === gridMoveState.taskId);
+  if (!sourceTask) {
+    cancelGridTaskMove();
+    return;
+  }
+
+  const occurrence = createOccurrence(sourceTask, gridMoveState.occurrenceDate);
+  gridMoveState.active = true;
+  gridMoveState.duration = Number(occurrence.duration);
+  gridMoveState.sourceElement.classList.add("grid-task-moving");
+  scheduleGrid.classList.add("grid-moving");
+
+  try {
+    scheduleGrid.setPointerCapture(gridMoveState.pointerId);
+  } catch {
+    // Pointer capture is not available in every embedded browser.
+  }
+
+  updateGridMovePreview(gridMoveState.lastX, gridMoveState.lastY);
+}
+
+function updateGridTaskMove(event) {
+  if (!gridMoveState || event.pointerId !== gridMoveState.pointerId) return;
+
+  gridMoveState.lastX = event.clientX;
+  gridMoveState.lastY = event.clientY;
+
+  if (!gridMoveState.active) {
+    const movedDistance = Math.hypot(event.clientX - gridMoveState.startX, event.clientY - gridMoveState.startY);
+    if (movedDistance > GRID_MOVE_CANCEL_DISTANCE) {
+      cancelGridTaskMove();
+    }
+    return;
+  }
+
+  event.preventDefault();
+  updateGridMovePreview(event.clientX, event.clientY);
+}
+
+function finishGridTaskMove(event) {
+  if (!gridMoveState || event.pointerId !== gridMoveState.pointerId) return;
+
+  if (!gridMoveState.active) {
+    cancelGridTaskMove();
+    return;
+  }
+
+  event.preventDefault();
+  const drop = getGridMoveDropTarget(event.clientX, event.clientY, gridMoveState.duration);
+  const didMove = drop
+    ? moveGridTask(gridMoveState.taskId, gridMoveState.occurrenceDate, drop.date, drop.time)
+    : false;
+
+  suppressTaskTapUntil = Date.now() + TASK_DOUBLE_TAP_MS;
+  cancelGridTaskMove();
+
+  if (!didMove) return;
+
+  saveTasks();
+  render();
+}
+
+function cancelInactiveGridTaskMove(event) {
+  if (gridMoveState && !gridMoveState.active && event.pointerId === gridMoveState.pointerId) {
+    cancelGridTaskMove();
+  }
+}
+
+function cancelGridTaskMove() {
+  if (gridMoveHoldTimer) {
+    clearTimeout(gridMoveHoldTimer);
+  }
+
+  if (gridMoveState?.sourceElement) {
+    gridMoveState.sourceElement.classList.remove("grid-task-moving");
+  }
+
+  if (gridMoveState?.preview) {
+    gridMoveState.preview.remove();
+  }
+
+  if (gridMoveState?.pointerId !== undefined) {
+    try {
+      scheduleGrid.releasePointerCapture(gridMoveState.pointerId);
+    } catch {
+      // Ignore release failures when capture was never taken.
+    }
+  }
+
+  scheduleGrid.classList.remove("grid-moving");
+  gridMoveHoldTimer = null;
+  gridMoveState = null;
+}
+
+function updateGridMovePreview(clientX, clientY) {
+  if (!gridMoveState?.active) return;
+
+  const drop = getGridMoveDropTarget(clientX, clientY, gridMoveState.duration);
+  gridMoveState.drop = drop;
+
+  if (!drop) {
+    if (gridMoveState.preview) gridMoveState.preview.remove();
+    gridMoveState.preview = null;
+    return;
+  }
+
+  const preview = getGridMovePreview();
+  if (preview.parentElement !== drop.container) {
+    drop.container.append(preview);
+  }
+
+  preview.style.top = `${drop.top.toFixed(2)}%`;
+  preview.style.height = `${drop.height.toFixed(2)}%`;
+  preview.textContent = `${formatDateHeading(drop.date)} - ${formatTimeFromMinutes(drop.minute)}`;
+  preview.classList.toggle("week-preview", Boolean(drop.container.classList.contains("week-day-column")));
+}
+
+function getGridMovePreview() {
+  if (!gridMoveState.preview) {
+    gridMoveState.preview = document.createElement("div");
+    gridMoveState.preview.className = "grid-drop-preview";
+  }
+
+  return gridMoveState.preview;
+}
+
+function getGridMoveDropTarget(clientX, clientY, duration) {
+  const board = scheduleGrid.querySelector(".timeline-board");
+  const timeline = board?.closest(".day-timeline");
+  if (!board || !timeline) return null;
+
+  const boardRect = board.getBoundingClientRect();
+  if (boardRect.width <= 0 || boardRect.height <= 0) return null;
+
+  const bounds = {
+    start: Number(timeline.dataset.startMinute) || 0,
+    end: Number(timeline.dataset.endMinute) || 24 * 60,
+    totalMinutes: Number(timeline.dataset.totalMinutes) || 1,
+  };
+  const snappedMinute = snapGridMinute(
+    bounds.start + clamp((clientY - boardRect.top) / boardRect.height, 0, 1) * bounds.totalMinutes,
+    bounds,
+    duration,
+  );
+  const top = ((snappedMinute - bounds.start) / bounds.totalMinutes) * 100;
+  const height = Math.max((duration / bounds.totalMinutes) * 100, 1.8);
+
+  if (board.classList.contains("week-board")) {
+    const columns = [...board.querySelectorAll(".week-day-column")];
+    const column = getClosestWeekColumn(columns, clientX);
+    if (!column) return null;
+
+    return {
+      container: column,
+      date: column.dataset.gridDate,
+      minute: snappedMinute,
+      time: timeInputValueFromMinutes(snappedMinute),
+      top,
+      height,
+    };
+  }
+
+  return {
+    container: board,
+    date: board.dataset.gridDate || todayISO,
+    minute: snappedMinute,
+    time: timeInputValueFromMinutes(snappedMinute),
+    top,
+    height,
+  };
+}
+
+function getClosestWeekColumn(columns, clientX) {
+  if (columns.length === 0) return null;
+
+  return columns.reduce((closestColumn, column) => {
+    const rect = column.getBoundingClientRect();
+    const closestDistance = Math.abs(clientX - getElementCenterX(closestColumn));
+    const columnDistance = Math.abs(clientX - (rect.left + rect.width / 2));
+    return columnDistance < closestDistance ? column : closestColumn;
+  }, columns[0]);
+}
+
+function getElementCenterX(element) {
+  const rect = element.getBoundingClientRect();
+  return rect.left + rect.width / 2;
+}
+
+function snapGridMinute(minute, bounds, duration) {
+  const maxStart = Math.max(bounds.start, bounds.end - Number(duration || 0));
+  const snapped = Math.round(minute / GRID_MOVE_SNAP_MINUTES) * GRID_MOVE_SNAP_MINUTES;
+  return clamp(snapped, bounds.start, maxStart);
+}
+
 function openEditTask(taskId, occurrenceDate) {
   clearHoldToEdit();
+  cancelGridTaskMove();
   const task = tasks.find((savedTask) => savedTask.id === taskId);
   if (!task) return;
 
@@ -940,7 +1458,7 @@ function createMissedTaskCard(task) {
         <button class="secondary-button" data-missed-action="today" type="button">Today</button>
         <button class="secondary-button" data-missed-action="tomorrow" type="button">Tomorrow</button>
         <button class="secondary-button danger-button" data-missed-action="skip" type="button">Skip</button>
-        <button class="secondary-button ghost-button" data-missed-action="delete" type="button">Delete</button>
+        <button class="secondary-button ghost-button delete-x-button" data-missed-action="delete" type="button" title="Delete" aria-label="Delete">x</button>
       </div>
     </article>
   `;
@@ -1007,7 +1525,7 @@ function createTaskCard(task) {
         ${timerButton}
         ${undoButton}
         <button class="icon-button delete" type="button" data-action="delete" title="Delete" aria-label="Delete">
-          Del
+          x
         </button>
       </div>
     </article>
@@ -1073,9 +1591,9 @@ function createDayScheduleGrid(occurrences) {
         <h3>${formatDateHeading(todayISO)}</h3>
         <span>${dayTasks.length} task${dayTasks.length === 1 ? "" : "s"}</span>
       </div>
-      <div class="day-timeline" data-total-minutes="${bounds.totalMinutes}" style="--timeline-height: ${getTimelineHeight(bounds.totalMinutes)}px;">
+      <div class="day-timeline" data-start-minute="${bounds.start}" data-end-minute="${bounds.end}" data-total-minutes="${bounds.totalMinutes}" style="--timeline-height: ${getTimelineHeight(bounds.totalMinutes)}px;">
         <div class="time-labels">${createTimelineLabels(bounds)}</div>
-        <div class="timeline-board">
+        <div class="timeline-board" data-grid-date="${todayISO}">
           ${createTimelineLines(bounds)}
           ${timelineItems.map((item) => createTimelineTask(item, bounds)).join("")}
         </div>
@@ -1098,7 +1616,7 @@ function createWeekScheduleGrid(occurrences) {
       const timelineItems = assignTimelineLanes(dayTasks);
 
       return `
-        <div class="week-day-column ${date === todayISO ? "today" : ""}">
+        <div class="week-day-column ${date === todayISO ? "today" : ""}" data-grid-date="${date}">
           ${timelineItems.map((item) => createTimelineTask(item, bounds, "week-task")).join("")}
         </div>
       `;
@@ -1115,7 +1633,7 @@ function createWeekScheduleGrid(occurrences) {
         <span></span>
         ${dateLabels}
       </div>
-      <div class="day-timeline week-timeline" data-total-minutes="${bounds.totalMinutes}" style="--timeline-height: ${getTimelineHeight(bounds.totalMinutes)}px;">
+      <div class="day-timeline week-timeline" data-start-minute="${bounds.start}" data-end-minute="${bounds.end}" data-total-minutes="${bounds.totalMinutes}" style="--timeline-height: ${getTimelineHeight(bounds.totalMinutes)}px;">
         <div class="time-labels">${createTimelineLabels(bounds)}</div>
         <div class="timeline-board week-board">
           ${createTimelineLines(bounds)}
@@ -1339,22 +1857,25 @@ function getTimelineHours(bounds) {
 function getDayTimelineBounds(dayTasks) {
   if (dayTasks.length === 0) {
     return {
-      start: 6 * 60,
-      end: 22 * 60,
-      totalMinutes: 16 * 60,
+      start: 8 * 60,
+      end: 12 * 60,
+      totalMinutes: 4 * 60,
     };
   }
 
   const ranges = dayTasks.map(getTaskTimeRange);
-  const earliest = Math.min(...ranges.map((range) => range.start), 6 * 60);
-  const latest = Math.max(...ranges.map((range) => range.end), 22 * 60);
-  const start = Math.max(0, Math.floor(earliest / 60) * 60);
-  const end = Math.min(24 * 60, Math.ceil(latest / 60) * 60);
+  const earliest = Math.min(...ranges.map((range) => range.start));
+  const latest = Math.max(...ranges.map((range) => range.end));
+  const paddedStart = Math.max(0, earliest - 30);
+  const paddedEnd = Math.min(24 * 60, latest + 30);
+  const start = Math.max(0, Math.floor(paddedStart / 60) * 60);
+  const end = Math.min(24 * 60, Math.ceil(paddedEnd / 60) * 60);
+  const finalEnd = Math.max(end, start + 60);
 
   return {
     start,
-    end,
-    totalMinutes: Math.max(end - start, 60),
+    end: finalEnd,
+    totalMinutes: finalEnd - start,
   };
 }
 
@@ -1382,6 +1903,13 @@ function formatTimeFromMinutes(minutes) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function timeInputValueFromMinutes(minutes) {
+  const normalizedMinutes = clamp(Math.round(minutes), 0, 23 * 60 + 59);
+  const hours = Math.floor(normalizedMinutes / 60);
+  const remainingMinutes = normalizedMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(remainingMinutes).padStart(2, "0")}`;
 }
 
 function formatDateHeading(isoDate) {
@@ -1571,6 +2099,7 @@ function handleScheduleGridZoom(event) {
 function handleGridTouchStart(event) {
   if (event.touches.length !== 2) return;
 
+  cancelGridTaskMove();
   pinchStartDistance = getTouchDistance(event.touches);
   pinchStartZoom = scheduleGridZoom;
 }
@@ -1626,33 +2155,99 @@ function clamp(value, min, max) {
 function createStatsPanel(completedHistory) {
   const days = Number(statsRange.value);
   const dailyStats = buildDailyStats(completedHistory, days);
-  const totalTasks = dailyStats.reduce((total, day) => total + day.tasks, 0);
-  const totalPoints = dailyStats.reduce((total, day) => total + day.points, 0);
+  const rangeCompleted = getCompletedTasksInStatsRange(completedHistory, days);
+  const summary = summarizeStatsRange(dailyStats);
+  const typeStats = buildCompletedTypeStats(rangeCompleted);
 
   return `
-    <article class="stat-card stat-card-wide">
-      <div class="stats-overview">
-        <div>
-          <h3>${getStatsRangeLabel(days)}</h3>
-          <p>xp earned from completed tasks in this time period.</p>
-        </div>
-        <div class="stat-summary-row">
+    <section class="stats-dashboard">
+      ${createStatsKpiGrid(summary)}
+      <article class="stat-card stat-card-wide stats-trend-card">
+        <div class="stats-overview stats-overview-detailed">
           <div>
-            <span>xp</span>
-            <strong>${formatPoints(totalPoints)}</strong>
+            <h3>${getStatsRangeLabel(days)}</h3>
+            <p>xp trend, momentum, and daily consistency from completed tasks.</p>
           </div>
-          <div>
-            <span>Tasks</span>
-            <strong>${totalTasks}</strong>
+          <div class="stat-summary-row compact">
+            <div>
+              <span>Daily avg</span>
+              <strong>${formatPoints(summary.averagePoints)}</strong>
+            </div>
+            <div>
+              <span>Best day</span>
+              <strong>${formatStatsDate(summary.bestDay.date, days)}</strong>
+            </div>
           </div>
         </div>
+        ${createStatsInsightStrip(summary, days)}
+        ${createPointsChart(dailyStats, days)}
+      </article>
+      <div class="stats-detail-grid">
+        ${createTaskTypeBreakdown(typeStats, summary.totalPoints)}
+        ${createConsistencyPanel(dailyStats, summary)}
       </div>
-      ${createPointsChart(dailyStats, days)}
-    </article>
+    </section>
   `;
 }
 
-function createWeeklyReport(completedHistory) {
+function renderWeeklyReportOverlay(completedHistory) {
+  if (!weeklyReportOverlay) return;
+
+  const reportKey = getCurrentWeeklyReportKey();
+  if (!shouldShowWeeklyReportOverlay(reportKey)) {
+    hideWeeklyReportOverlay();
+    return;
+  }
+
+  weeklyReportOverlay.classList.add("visible");
+  weeklyReportOverlay.innerHTML = createWeeklyReportModal(completedHistory);
+}
+
+function shouldShowWeeklyReportOverlay(reportKey) {
+  if (today.getDay() !== 1) return false;
+
+  return localStorage.getItem(getProfileStorageKey(WEEKLY_REPORT_SEEN_STORAGE_KEY)) !== reportKey;
+}
+
+function createWeeklyReportModal(completedHistory) {
+  const report = buildWeeklyReport(completedHistory);
+  const currentPeriod = `${formatDateHeading(report.current.startISO)} - ${formatDateHeading(report.current.endISO)}`;
+
+  return `
+    <section class="weekly-report-modal" role="dialog" aria-modal="true" aria-labelledby="weeklyReportModalTitle">
+      <button class="close-button weekly-report-modal-close" data-weekly-report-action="close" type="button" aria-label="Close weekly report">x</button>
+      <div class="weekly-report-modal-intro">
+        <span class="report-kicker">Monday report</span>
+        <h2 id="weeklyReportModalTitle">Your Weekly Report</h2>
+        <p>${currentPeriod}. See how your xp, hours, and completed tasks changed compared with the week before.</p>
+      </div>
+      ${createWeeklyReport(completedHistory, { isModal: true })}
+      <button class="primary-button weekly-report-modal-action" data-weekly-report-action="close" type="button">Keep going</button>
+    </section>
+  `;
+}
+
+function dismissWeeklyReportOverlay() {
+  localStorage.setItem(getProfileStorageKey(WEEKLY_REPORT_SEEN_STORAGE_KEY), getCurrentWeeklyReportKey());
+  queueCloudSave();
+  hideWeeklyReportOverlay();
+}
+
+function hideWeeklyReportOverlay() {
+  if (!weeklyReportOverlay) return;
+
+  weeklyReportOverlay.classList.remove("visible");
+  weeklyReportOverlay.innerHTML = "";
+}
+
+function getCurrentWeeklyReportKey() {
+  const thisWeekStart = getCurrentWeekStart();
+  const currentStart = addDays(thisWeekStart, -7);
+  const currentEnd = addDays(thisWeekStart, -1);
+  return `${toDateInputValue(currentStart)}:${toDateInputValue(currentEnd)}`;
+}
+
+function createWeeklyReport(completedHistory, options = {}) {
   const report = buildWeeklyReport(completedHistory);
   const bonusPoints = calculateWeeklyBonusPoints(report);
   const reportBadge = today.getDay() === 1 ? "Monday report ready" : "Updates every Monday";
@@ -1660,7 +2255,7 @@ function createWeeklyReport(completedHistory) {
   const previousPeriod = `${formatDateHeading(report.previous.startISO)} - ${formatDateHeading(report.previous.endISO)}`;
 
   return `
-    <section class="weekly-report-card">
+    <section class="weekly-report-card ${options.isModal ? "weekly-report-card-modal" : "weekly-report-card-docked"}">
       <div class="weekly-report-header">
         <div>
           <span class="report-kicker">${reportBadge}</span>
@@ -1878,13 +2473,212 @@ function formatHours(hours) {
   return Number.isInteger(hours) ? `${hours}h` : `${hours.toFixed(1)}h`;
 }
 
+function getCompletedTasksInStatsRange(completedHistory, days) {
+  const start = addDays(startOfToday(new Date()), -(days - 1));
+  const end = startOfToday(new Date());
+
+  return completedHistory.filter((task) => {
+    const taskDate = parseISODate(task.occurrenceDate);
+    return taskDate >= start && taskDate <= end;
+  });
+}
+
+function summarizeStatsRange(dailyStats) {
+  const totalTasks = dailyStats.reduce((total, day) => total + day.tasks, 0);
+  const totalPoints = dailyStats.reduce((total, day) => total + day.points, 0);
+  const totalMinutes = dailyStats.reduce((total, day) => total + day.minutes, 0);
+  const activeDays = dailyStats.filter((day) => day.tasks > 0).length;
+  const activeStats = dailyStats.filter((day) => day.tasks > 0);
+  const fallbackDay = { date: "", tasks: 0, points: 0, minutes: 0 };
+  const bestDay = activeStats.length
+    ? activeStats.reduce((best, day) =>
+        day.points > best.points || (day.points === best.points && day.tasks > best.tasks) ? day : best,
+      )
+    : fallbackDay;
+  const quietDay = activeStats.length
+    ? activeStats.reduce((quiet, day) =>
+        day.points < quiet.points || (day.points === quiet.points && day.tasks < quiet.tasks) ? day : quiet,
+      )
+    : fallbackDay;
+  const splitIndex = Math.max(1, Math.floor(dailyStats.length / 2));
+  const previousPoints = dailyStats.slice(0, splitIndex).reduce((total, day) => total + day.points, 0);
+  const recentPoints = dailyStats.slice(splitIndex).reduce((total, day) => total + day.points, 0);
+
+  return {
+    totalTasks,
+    totalPoints,
+    totalMinutes,
+    activeDays,
+    bestDay,
+    quietDay,
+    previousPoints,
+    recentPoints,
+    averagePoints: dailyStats.length ? totalPoints / dailyStats.length : 0,
+    averageMinutes: dailyStats.length ? totalMinutes / dailyStats.length : 0,
+    consistency: dailyStats.length ? (activeDays / dailyStats.length) * 100 : 0,
+    momentumChange: calculatePercentChange(recentPoints, previousPoints),
+  };
+}
+
+function buildCompletedTypeStats(completed) {
+  const typeStats = new Map();
+
+  completed.forEach((task) => {
+    const stats = typeStats.get(task.type) ?? { type: task.type, tasks: 0, points: 0, minutes: 0 };
+    stats.tasks += 1;
+    stats.points += calculatePoints(task);
+    stats.minutes += calculateCompletedMinutes(task);
+    typeStats.set(task.type, stats);
+  });
+
+  return [...typeStats.values()].sort(
+    (first, second) => second.points - first.points || second.tasks - first.tasks || second.minutes - first.minutes,
+  );
+}
+
+function createStatsKpiGrid(summary) {
+  return `
+    <div class="stats-kpi-grid">
+      ${createStatsKpiCard("Total xp", formatPoints(summary.totalPoints), `${formatPoints(summary.averagePoints)} avg / day`, "xp")}
+      ${createStatsKpiCard("Tracked time", formatMinutesAsHours(summary.totalMinutes), `${formatMinutesAsHours(Math.round(summary.averageMinutes))} avg / day`, "time")}
+      ${createStatsKpiCard("Tasks done", summary.totalTasks, `${formatPoints(summary.totalTasks / Math.max(summary.activeDays, 1))} avg / active day`, "tasks")}
+      ${createStatsKpiCard("Active days", `${summary.activeDays}`, `${formatPoints(summary.consistency)}% consistency`, "days")}
+    </div>
+  `;
+}
+
+function createStatsKpiCard(label, value, detail, modifier) {
+  return `
+    <article class="stats-kpi-card ${modifier}">
+      <span>${label}</span>
+      <strong>${value}</strong>
+      <small>${detail}</small>
+    </article>
+  `;
+}
+
+function createStatsInsightStrip(summary, days) {
+  const momentumClass = summary.momentumChange > 0 ? "up" : summary.momentumChange < 0 ? "down" : "flat";
+  const momentumLabel =
+    summary.momentumChange > 0 ? "Recent xp is up" : summary.momentumChange < 0 ? "Recent xp is down" : "Recent xp is steady";
+
+  return `
+    <div class="stats-insight-strip">
+      <article>
+        <span>Best day</span>
+        <strong>${formatStatsDate(summary.bestDay.date, days)}</strong>
+        <small>${formatPoints(summary.bestDay.points)} xp &middot; ${summary.bestDay.tasks} tasks</small>
+      </article>
+      <article>
+        <span>Quiet day</span>
+        <strong>${formatStatsDate(summary.quietDay.date, days)}</strong>
+        <small>${formatPoints(summary.quietDay.points)} xp &middot; ${summary.quietDay.tasks} tasks</small>
+      </article>
+      <article class="${momentumClass}">
+        <span>Momentum</span>
+        <strong>${formatPercentChange(summary.momentumChange)}</strong>
+        <small>${momentumLabel}</small>
+      </article>
+    </div>
+  `;
+}
+
+function createTaskTypeBreakdown(typeStats, totalPoints) {
+  const rows = typeStats.slice(0, 6);
+
+  if (!rows.length) {
+    return `
+      <article class="stat-card stats-detail-card">
+        <h3>Task Mix</h3>
+        <p class="stats-empty-note">Complete a task and Shedulr will show which types are earning the most xp.</p>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="stat-card stats-detail-card">
+      <div class="detail-card-heading">
+        <div>
+          <h3>Task Mix</h3>
+          <p>Top task types by xp in this range.</p>
+        </div>
+        <span>${rows.length} shown</span>
+      </div>
+      <div class="type-breakdown">
+        ${rows.map((stats) => createTaskTypeBreakdownRow(stats, totalPoints)).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function createTaskTypeBreakdownRow(stats, totalPoints) {
+  const typeStyle = getTaskTypeStyle(stats.type);
+  const width = totalPoints > 0 ? Math.max((stats.points / totalPoints) * 100, 5) : 0;
+
+  return `
+    <article class="type-breakdown-row" style="--type-color: ${typeStyle.color}; --type-bg: ${typeStyle.bg}; --bar-width: ${width.toFixed(1)}%;">
+      <div class="type-breakdown-topline">
+        <strong>${escapeHTML(stats.type)}</strong>
+        <span>${formatPoints(stats.points)} xp</span>
+      </div>
+      <div class="type-breakdown-bar" aria-hidden="true"><span></span></div>
+      <small>${stats.tasks} tasks &middot; ${formatMinutesAsHours(stats.minutes)}</small>
+    </article>
+  `;
+}
+
+function createConsistencyPanel(dailyStats, summary) {
+  return `
+    <article class="stat-card stats-detail-card">
+      <div class="detail-card-heading">
+        <div>
+          <h3>Consistency</h3>
+          <p>Each square is one day in the selected range.</p>
+        </div>
+        <span>${formatPoints(summary.consistency)}%</span>
+      </div>
+      <div class="consistency-score">
+        <strong>${summary.activeDays}</strong>
+        <span>active days from ${dailyStats.length}</span>
+      </div>
+      <div class="consistency-grid" style="--consistency-days: ${Math.min(dailyStats.length, 30)};">
+        ${dailyStats.map((day) => createConsistencyDay(day)).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function createConsistencyDay(day) {
+  const dayOpacity = day.points > 0 ? clamp(0.28 + day.points / 160, 0.36, 0.9) : 0;
+  const label = `${formatDateHeading(day.date)}: ${formatPoints(day.points)} xp, ${day.tasks} tasks`;
+
+  return `
+    <span
+      class="consistency-day ${day.tasks > 0 ? "active" : ""}"
+      style="--day-opacity: ${dayOpacity.toFixed(2)};"
+      title="${escapeHTML(label)}"
+      aria-label="${escapeHTML(label)}"
+    ></span>
+  `;
+}
+
+function formatStatsDate(isoDate, days) {
+  if (!isoDate) return "No data";
+
+  return parseISODate(isoDate).toLocaleDateString(undefined, {
+    weekday: days <= 7 ? "short" : undefined,
+    month: days > 7 ? "short" : undefined,
+    day: days > 7 ? "numeric" : undefined,
+  });
+}
+
 function buildDailyStats(completedHistory, days) {
   const start = addDays(startOfToday(new Date()), -(days - 1));
   const statsByDate = new Map();
 
   for (let index = 0; index < days; index += 1) {
     const date = toDateInputValue(addDays(start, index));
-    statsByDate.set(date, { date, tasks: 0, points: 0 });
+    statsByDate.set(date, { date, tasks: 0, points: 0, minutes: 0 });
   }
 
   completedHistory.forEach((task) => {
@@ -1893,6 +2687,7 @@ function buildDailyStats(completedHistory, days) {
 
     day.tasks += 1;
     day.points += calculatePoints(task);
+    day.minutes += calculateCompletedMinutes(task);
   });
 
   return [...statsByDate.values()];
@@ -2068,6 +2863,52 @@ function markTaskComplete(task, taskId, occurrenceDate, earnedPoints = null, act
   };
 }
 
+function moveGridTask(taskId, occurrenceDate, targetDate, targetTime) {
+  const sourceTask = tasks.find((task) => task.id === taskId);
+  if (!sourceTask || !targetDate || !targetTime) return false;
+
+  const sourceOccurrence = createOccurrence(sourceTask, occurrenceDate);
+  if (sourceOccurrence.occurrenceDate === targetDate && sourceOccurrence.time === targetTime) return false;
+
+  clearActiveTimerFor(taskId, occurrenceDate);
+
+  if (!sourceTask.repeats) {
+    tasks = tasks.map((task) =>
+      task.id === taskId
+        ? {
+            ...task,
+            date: targetDate,
+            time: targetTime,
+            skipped: false,
+          }
+        : task,
+    );
+    return true;
+  }
+
+  tasks = tasks.map((task) => detachRepeatingOccurrenceForMove(task, taskId, occurrenceDate));
+  tasks.push(createSingleTaskFromOccurrence(sourceOccurrence, targetDate, targetTime, sourceOccurrence.done));
+  return true;
+}
+
+function detachRepeatingOccurrenceForMove(task, taskId, occurrenceDate) {
+  if (task.id !== taskId) return task;
+
+  const skippedTask = skipTaskOccurrence(task, taskId, occurrenceDate);
+  const earnedPointsByDate = { ...(skippedTask.earnedPointsByDate ?? {}) };
+  const actualMinutesByDate = { ...(skippedTask.actualMinutesByDate ?? {}) };
+  delete earnedPointsByDate[occurrenceDate];
+  delete actualMinutesByDate[occurrenceDate];
+
+  return {
+    ...skippedTask,
+    completedDates: (Array.isArray(skippedTask.completedDates) ? skippedTask.completedDates : [])
+      .filter((date) => date !== occurrenceDate),
+    earnedPointsByDate,
+    actualMinutesByDate,
+  };
+}
+
 function moveMissedTask(taskId, occurrenceDate, targetDate) {
   const sourceTask = tasks.find((task) => task.id === taskId);
   if (!sourceTask) return;
@@ -2090,12 +2931,14 @@ function moveMissedTask(taskId, occurrenceDate, targetDate) {
   tasks.push(createSingleTaskFromOccurrence(createOccurrence(sourceTask, occurrenceDate), targetDate));
 }
 
-function createSingleTaskFromOccurrence(task, targetDate) {
+function createSingleTaskFromOccurrence(task, targetDate, targetTime = task.time, keepCompletion = false) {
+  const isDone = keepCompletion && Boolean(task.done);
+
   return {
     id: crypto.randomUUID(),
     title: task.title,
     date: targetDate,
-    time: task.time,
+    time: targetTime,
     duration: Number(task.duration),
     type: task.type,
     priority: normalizePriority(task.priority),
@@ -2104,8 +2947,10 @@ function createSingleTaskFromOccurrence(task, targetDate) {
     repeatDays: [],
     completedDates: [],
     skippedDates: [],
-    done: false,
+    done: isDone,
     skipped: false,
+    earnedPoints: isDone ? task.earnedPoints : null,
+    actualMinutes: isDone ? task.actualMinutes : null,
     createdAt: new Date().toISOString(),
   };
 }
@@ -2351,18 +3196,27 @@ function createStreakChip(type) {
 }
 
 function buildTypeStreakMap(completedHistory) {
-  const datesByType = new Map();
+  const minutesByType = new Map();
 
   completedHistory.forEach((task) => {
-    if (!datesByType.has(task.type)) {
-      datesByType.set(task.type, new Set());
+    if (!minutesByType.has(task.type)) {
+      minutesByType.set(task.type, new Map());
     }
 
-    datesByType.get(task.type).add(task.occurrenceDate);
+    const minutesByDate = minutesByType.get(task.type);
+    const minutes = minutesByDate.get(task.occurrenceDate) ?? 0;
+    minutesByDate.set(task.occurrenceDate, minutes + calculateCompletedMinutes(task));
   });
 
   return new Map(
-    [...datesByType.entries()].map(([type, dates]) => [type, calculateCurrentStreak(dates)]),
+    [...minutesByType.entries()].map(([type, minutesByDate]) => {
+      const qualifiedDates = new Set(
+        [...minutesByDate.entries()]
+          .filter(([, minutes]) => minutes >= STREAK_MINUTES_TO_KEEP)
+          .map(([date]) => date),
+      );
+      return [type, calculateCurrentStreak(qualifiedDates)];
+    }),
   );
 }
 
@@ -2424,6 +3278,121 @@ function formatMinutesAsHours(minutes) {
   return Number.isInteger(hours) ? `${hours}h` : `${hours.toFixed(1)}h`;
 }
 
+async function requestTaskReminderPermission() {
+  if (!supportsBrowserNotifications()) {
+    showAppToast("Task reminders on", "Shedulr will show reminders inside the app on this device.");
+    return false;
+  }
+
+  try {
+    if (Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+  } catch {
+    showAppToast("Task reminders on", "Browser notifications could not be requested, so Shedulr will use in-app reminders.");
+    return false;
+  }
+
+  if (Notification.permission === "granted") {
+    showAppToast("Notifications on", "Shedulr can now remind you when tasks are due.");
+    return true;
+  }
+
+  showAppToast("Task reminders on", "Browser notifications are blocked, so Shedulr will use in-app reminders.");
+  return false;
+}
+
+function supportsBrowserNotifications() {
+  return "Notification" in window;
+}
+
+function ensureTaskReminderInterval() {
+  if (!featureSettings.taskReminders) {
+    stopTaskReminderInterval();
+    return;
+  }
+
+  if (taskReminderInterval) return;
+  taskReminderInterval = setInterval(checkTaskReminders, TASK_REMINDER_INTERVAL_MS);
+}
+
+function stopTaskReminderInterval() {
+  if (!taskReminderInterval) return;
+  clearInterval(taskReminderInterval);
+  taskReminderInterval = null;
+}
+
+function checkTaskReminders(occurrences = reminderOccurrences) {
+  if (!featureSettings.taskReminders) return;
+
+  const now = new Date();
+  const currentDate = toDateInputValue(now);
+  const tasksToCheck = occurrences.length > 0 ? occurrences : buildScheduleOccurrences();
+
+  tasksToCheck
+    .filter((task) => task.occurrenceDate === currentDate && !task.done && !task.skipped && !isActiveTimerFor(task))
+    .forEach((task) => {
+      const reminderKey = createTaskReminderKey(task);
+      if (sentTaskReminderKeys.has(reminderKey)) return;
+
+      const taskDateTime = new Date(`${task.occurrenceDate}T${task.time}`);
+      const msSinceTaskTime = now - taskDateTime;
+
+      if (msSinceTaskTime < 0 || msSinceTaskTime > TASK_REMINDER_GRACE_MS) return;
+
+      sentTaskReminderKeys.add(reminderKey);
+      sendTaskReminder(task);
+    });
+}
+
+function createTaskReminderKey(task) {
+  return `${activeProfileId}:${task.id}:${task.occurrenceDate}:${task.time}`;
+}
+
+function sendTaskReminder(task) {
+  const title = "Task time";
+  const body = `${task.title} is scheduled now (${formatTimeRange(task)}).`;
+
+  if (supportsBrowserNotifications() && Notification.permission === "granted") {
+    try {
+      new Notification("Shedulr", {
+        body,
+        tag: createTaskReminderKey(task),
+        renotify: false,
+      });
+    } catch {
+      // Some browsers block notifications for file-based apps; the in-app toast still appears.
+    }
+  }
+
+  showAppToast(title, body);
+}
+
+function showAppToast(title, message) {
+  if (!appToast) return;
+
+  clearTimeout(appToastTimer);
+  appToast.classList.add("visible");
+  appToast.innerHTML = `
+    <div>
+      <strong>${escapeHTML(title)}</strong>
+      <p>${escapeHTML(message)}</p>
+    </div>
+    <button class="delete-x-button" data-toast-action="close" type="button" aria-label="Dismiss">x</button>
+  `;
+
+  appToastTimer = setTimeout(hideAppToast, 6200);
+}
+
+function hideAppToast() {
+  if (!appToast) return;
+
+  clearTimeout(appToastTimer);
+  appToastTimer = null;
+  appToast.classList.remove("visible");
+  appToast.innerHTML = "";
+}
+
 function applyTheme(theme) {
   currentTheme = theme === "dark" ? "dark" : "light";
   document.body.dataset.theme = currentTheme;
@@ -2441,6 +3410,7 @@ function applyAccentTheme(theme, shouldSave = true) {
   const accent = ACCENT_THEMES[currentAccentTheme][currentTheme];
 
   [document.documentElement, document.body].forEach((element) => {
+    element.dataset.accentTheme = currentAccentTheme;
     element.style.setProperty("--green", accent.accent);
     element.style.setProperty("--green-dark", accent.strong);
     element.style.setProperty("--accent-soft", accent.soft);
@@ -2467,6 +3437,7 @@ function applyFeatureSettingsToControls() {
 
 function applyFeatureVisibility() {
   priorityField.classList.toggle("hidden", !featureSettings.priorities);
+  ensureTaskReminderInterval();
 }
 
 function openProfileMenu() {
@@ -2765,6 +3736,7 @@ function createProfileCloudData(profileId) {
     weeklyGoals: readProfileJSON(GOAL_STORAGE_KEY, profileId, {}),
     taskTemplates: readProfileJSON(TEMPLATE_STORAGE_KEY, profileId, []),
     activeTimer: readProfileJSON(TIMER_STORAGE_KEY, profileId, null),
+    weeklyReportSeenKey: localStorage.getItem(getProfileStorageKey(WEEKLY_REPORT_SEEN_STORAGE_KEY, profileId)) ?? "",
     dismissedOverlapSignature: localStorage.getItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY, profileId)) ?? "",
     missedTasksCollapsed: localStorage.getItem(getProfileStorageKey(MISSED_COLLAPSE_STORAGE_KEY, profileId)) === "true",
   };
@@ -2838,6 +3810,13 @@ function writeProfileCloudData(profileId, data) {
     writeProfileJSON(TIMER_STORAGE_KEY, profileId, data.activeTimer);
   } else {
     localStorage.removeItem(getProfileStorageKey(TIMER_STORAGE_KEY, profileId));
+  }
+
+  const weeklyReportSeenKey = String(data.weeklyReportSeenKey ?? "");
+  if (weeklyReportSeenKey) {
+    localStorage.setItem(getProfileStorageKey(WEEKLY_REPORT_SEEN_STORAGE_KEY, profileId), weeklyReportSeenKey);
+  } else {
+    localStorage.removeItem(getProfileStorageKey(WEEKLY_REPORT_SEEN_STORAGE_KEY, profileId));
   }
 
   const overlapSignature = String(data.dismissedOverlapSignature ?? "");
@@ -3065,8 +4044,8 @@ function createProfileRow(profile, selectedProfileId) {
       <button class="secondary-button" type="button" data-profile-action="switch" data-profile-id="${escapeHTML(profile.id)}" ${isActive ? "disabled" : ""}>
         ${isActive ? "Active" : "Switch"}
       </button>
-      <button class="danger-button" type="button" data-profile-action="delete" data-profile-id="${escapeHTML(profile.id)}" ${profiles.length <= 1 ? "disabled" : ""}>
-        Del
+      <button class="danger-button delete-x-button" type="button" data-profile-action="delete" data-profile-id="${escapeHTML(profile.id)}" title="Delete" aria-label="Delete" ${profiles.length <= 1 ? "disabled" : ""}>
+        x
       </button>
     </div>
   `;

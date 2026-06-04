@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Daily Task Scheduler</title>
+    <title>Shedulr</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -13,12 +13,19 @@
           <button class="profile-button" id="profileButton" type="button" aria-label="Open profiles" aria-expanded="false">
             <span class="profile-avatar" id="profileAvatar" aria-hidden="true">ME</span>
           </button>
-          <div>
-            <p class="eyebrow">Daily planner</p>
-            <h1>Task Schedule</h1>
+          <div class="top-xp-pill" aria-label="Today's xp">
+            <span aria-hidden="true">⚡</span>
+            <strong id="todayXpValue">0</strong>
           </div>
         </div>
+        <div class="app-titlebar" aria-label="Shedulr">
+          <h1>Shedulr</h1>
+        </div>
         <div class="top-actions">
+          <div class="top-streak-pill" id="topStreakPill" aria-label="Current streak">
+            <span class="streak-fire" id="topStreakIcon" aria-hidden="true">&#128293;</span>
+            <strong id="topStreakValue">0</strong>
+          </div>
           <div class="today-pill" id="todayLabel"></div>
           <button class="menu-button" id="menuButton" type="button" aria-label="Open settings" aria-expanded="false">
             <span class="settings-cog" aria-hidden="true">&#9881;</span>
@@ -152,17 +159,13 @@
               <button class="colour-button" data-colour-theme="gold" type="button" style="--swatch: #b2832f">
                 <span></span>Gold
               </button>
+              <button class="colour-button" data-colour-theme="sleek" type="button" style="--swatch: #6f777c">
+                <span></span>Sleek
+              </button>
             </div>
           </div>
           <div class="feature-settings-panel">
             <h3>Features</h3>
-            <label class="setting-toggle">
-              <span>
-                <strong>Daily dashboard</strong>
-                <small>Show today's progress on Home.</small>
-              </span>
-              <input type="checkbox" data-feature-toggle="dailyDashboard" />
-            </label>
             <label class="setting-toggle">
               <span>
                 <strong>Task streaks</strong>
@@ -191,11 +194,21 @@
               </span>
               <input type="checkbox" data-feature-toggle="focusMode" />
             </label>
+            <label class="setting-toggle">
+              <span>
+                <strong>Task reminders</strong>
+                <small>Notify you when a task is due.</small>
+              </span>
+              <input type="checkbox" data-feature-toggle="taskReminders" />
+            </label>
           </div>
         </div>
       </aside>
 
       <div class="focus-overlay" id="focusOverlay" aria-live="polite"></div>
+      <div class="streak-celebration-overlay" id="streakCelebrationOverlay" aria-live="polite"></div>
+      <div class="weekly-report-overlay" id="weeklyReportOverlay" aria-live="polite"></div>
+      <div class="app-toast" id="appToast" role="status" aria-live="polite"></div>
       <div class="edit-overlay hidden" id="editTaskOverlay" aria-hidden="true">
         <section class="edit-modal" role="dialog" aria-modal="true" aria-labelledby="editTaskTitle">
           <form id="editTaskForm">
@@ -283,8 +296,6 @@
       </div>
 
       <section class="tab-panel active" id="homePanel" aria-labelledby="Home">
-        <section class="daily-dashboard hidden" id="dailyDashboard" aria-label="Daily dashboard"></section>
-
         <div class="panel-grid">
           <form class="task-form" id="taskForm">
             <div class="form-header">
@@ -493,8 +504,8 @@
           </div>
         </section>
 
-        <div id="weeklyReport"></div>
         <div class="stats-grid" id="statsGrid"></div>
+        <div class="weekly-report-dock" id="weeklyReport"></div>
       </section>
 
       <nav class="bottom-tabbar" aria-label="Main tabs">
@@ -525,6 +536,7 @@
           <span class="tab-label">Stats</span>
         </button>
       </nav>
+
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
