@@ -12,6 +12,7 @@ const MISSED_COLLAPSE_STORAGE_KEY = "daily-task-scheduler.missed-collapsed";
 const STREAK_CELEBRATION_STORAGE_KEY = "daily-task-scheduler.streak-celebrated-date";
 const PROFILE_STORAGE_KEY = "daily-task-scheduler.profiles";
 const ACTIVE_PROFILE_STORAGE_KEY = "daily-task-scheduler.active-profile";
+const TASK_FORM_COLLAPSED_STORAGE_KEY = "daily-task-scheduler.task-form-collapsed";
 const SUPABASE_URL = "https://xaacjrtkzvphztifnywm.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhYWNqcnRrenZwaHp0aWZueXdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMDA4NzcsImV4cCI6MjA5NTg3Njg3N30.mTBCPN4JiVDWQVVxBXyFE67vJ3i8A4JoW8mpUO1wDfo";
 const CLOUD_DATA_TABLE = "scheduler_app_data";
@@ -42,6 +43,8 @@ const TASK_REMINDER_GRACE_MS = 2 * 60 * 1000;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const BUILT_IN_TASK_TYPES = ["Focus", "Personal", "Study", "Health", "Errand"];
 const PRIORITY_LEVELS = ["Low", "Medium", "High"];
+const TASK_FORM_COLLAPSE_QUERY = "(max-width: 760px)";
+const taskFormCollapseQuery = window.matchMedia(TASK_FORM_COLLAPSE_QUERY);
 
 const taskForm = document.querySelector("#taskForm");
 const taskList = document.querySelector("#taskList");
@@ -63,6 +66,10 @@ const weeklyGoalInputs = document.querySelectorAll(".weekly-goal-select");
 const featureToggleInputs = document.querySelectorAll("[data-feature-toggle]");
 const todayCount = document.querySelector("#todayCount");
 const todaySummary = document.querySelector("#todaySummary");
+const todayProgressRing = document.querySelector("#todayProgressRing");
+const todayProgressPercent = document.querySelector("#todayProgressPercent");
+const todayStatusChip = document.querySelector("#todayStatusChip");
+const todayDayparts = document.querySelector("#todayDayparts");
 const todayLabel = document.querySelector("#todayLabel");
 const todayXpValue = document.querySelector("#todayXpValue");
 const topStreakPill = document.querySelector("#topStreakPill");
@@ -89,6 +96,7 @@ const priorityField = document.querySelector("#priorityField");
 const taskNotesInput = document.querySelector("#taskNotes");
 const taskTemplateSelect = document.querySelector("#taskTemplate");
 const saveTemplateButton = document.querySelector("#saveTemplateButton");
+const taskFormToggle = document.querySelector("#taskFormToggle");
 const taskRepeatsInput = document.querySelector("#taskRepeats");
 const weekdayPicker = document.querySelector("#weekdayPicker");
 const profileButton = document.querySelector("#profileButton");
@@ -126,6 +134,14 @@ const focusOverlay = document.querySelector("#focusOverlay");
 const streakCelebrationOverlay = document.querySelector("#streakCelebrationOverlay");
 const weeklyReportOverlay = document.querySelector("#weeklyReportOverlay");
 const appToast = document.querySelector("#appToast");
+const assistantButton = document.querySelector("#assistantButton");
+const assistantOverlay = document.querySelector("#assistantOverlay");
+const closeAssistantButton = document.querySelector("#closeAssistantButton");
+const assistantForm = document.querySelector("#assistantForm");
+const assistantPromptInput = document.querySelector("#assistantPrompt");
+const assistantResponse = document.querySelector("#assistantResponse");
+const assistantVoiceButton = document.querySelector("#assistantVoiceButton");
+const assistantPromptButtons = document.querySelectorAll("[data-assistant-prompt]");
 const editTaskOverlay = document.querySelector("#editTaskOverlay");
 const editTaskForm = document.querySelector("#editTaskForm");
 const editTaskIdInput = document.querySelector("#editTaskId");
@@ -180,6 +196,9 @@ let reminderOccurrences = [];
 let sentTaskReminderKeys = new Set();
 let appToastTimer = null;
 let streakCelebrationTimer = null;
+let assistantRecognition = null;
+let assistantIsListening = false;
+let taskFormCollapsedPreference = localStorage.getItem(TASK_FORM_COLLAPSED_STORAGE_KEY) === "true";
 
 const TASK_TYPE_STYLES = {
   Focus: { color: "#2d6f9f", bg: "rgba(45, 111, 159, 0.14)" },
@@ -298,6 +317,13 @@ renderTaskTemplateOptions();
 applyWeeklyGoalsToControls();
 applyFeatureSettingsToControls();
 applyTheme(currentTheme);
+applyTaskFormCollapseState();
+
+if (taskFormCollapseQuery.addEventListener) {
+  taskFormCollapseQuery.addEventListener("change", applyTaskFormCollapseState);
+} else {
+  taskFormCollapseQuery.addListener(applyTaskFormCollapseState);
+}
 
 document.querySelectorAll(".tab-button").forEach((button) => {
   button.addEventListener("click", () => {
@@ -363,6 +389,13 @@ gridZoomOutButton.addEventListener("click", () => setScheduleGridZoom(scheduleGr
 taskTypeInput.addEventListener("change", toggleCustomTypeInput);
 taskTemplateSelect.addEventListener("change", applySelectedTaskTemplate);
 saveTemplateButton.addEventListener("click", saveCurrentTaskTemplate);
+taskFormToggle?.addEventListener("click", () => {
+  if (!taskFormCollapseQuery.matches) return;
+
+  taskFormCollapsedPreference = !taskFormCollapsedPreference;
+  localStorage.setItem(TASK_FORM_COLLAPSED_STORAGE_KEY, String(taskFormCollapsedPreference));
+  applyTaskFormCollapseState();
+});
 profileButton.addEventListener("click", openProfileMenu);
 closeProfileButton.addEventListener("click", closeProfileMenu);
 editProfileButton.addEventListener("click", openProfileEditor);
@@ -380,6 +413,19 @@ logoutButton.addEventListener("click", signOut);
 menuButton.addEventListener("click", openMenu);
 closeMenuButton.addEventListener("click", closeMenu);
 drawerOverlay.addEventListener("click", closeAllMenus);
+assistantButton?.addEventListener("click", openAssistant);
+closeAssistantButton?.addEventListener("click", closeAssistant);
+assistantOverlay?.addEventListener("click", (event) => {
+  if (event.target === assistantOverlay) closeAssistant();
+});
+assistantForm?.addEventListener("submit", handleAssistantSubmit);
+assistantVoiceButton?.addEventListener("click", toggleAssistantVoice);
+assistantPromptButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    assistantPromptInput.value = button.dataset.assistantPrompt;
+    answerAssistantPrompt(button.dataset.assistantPrompt);
+  });
+});
 
 taskRepeatsInput.addEventListener("change", () => {
   if (taskRepeatsInput.checked && getSelectedRepeatDays().length === 0) {
@@ -784,8 +830,22 @@ function createOccurrence(task, date) {
 }
 
 function renderTodaySummary(occurrences) {
-  const todaysTasks = occurrences.filter((task) => task.occurrenceDate === todayISO);
-  todayCount.textContent = todaysTasks.length;
+  const todaysTasks = occurrences
+    .filter((task) => task.occurrenceDate === todayISO && !task.skipped)
+    .sort((first, second) => timeToMinutes(first.time) - timeToMinutes(second.time));
+  const totalMinutes = todaysTasks.reduce((total, task) => total + Number(task.duration || 0), 0);
+  const completedMinutes = todaysTasks
+    .filter((task) => task.done)
+    .reduce((total, task) => total + Number(task.duration || 0), 0);
+  const progressPercent = totalMinutes > 0
+    ? Math.round((completedMinutes / totalMinutes) * 100)
+    : 0;
+
+  todayCount.textContent = `${todaysTasks.length} task${todaysTasks.length === 1 ? "" : "s"}`;
+  todayProgressPercent.textContent = `${progressPercent}%`;
+  todayStatusChip.textContent = `${progressPercent}%`;
+  todayProgressRing.style.setProperty("--today-progress", `${progressPercent * 3.6}deg`);
+  todayDayparts.innerHTML = createTodayDayparts(todaysTasks);
 
   if (todaysTasks.length === 0) {
     todaySummary.textContent = "No tasks scheduled for today yet.";
@@ -797,6 +857,54 @@ function renderTodaySummary(occurrences) {
     remaining === 0
       ? "Everything planned for today is complete."
       : `${remaining} task${remaining === 1 ? "" : "s"} still planned for today.`;
+}
+
+function createTodayDayparts(todaysTasks) {
+  const periods = [
+    { label: "Morning", start: 0, end: 12 * 60 },
+    { label: "Evening", start: 12 * 60, end: 18 * 60 },
+    { label: "Night", start: 18 * 60, end: 24 * 60 },
+  ];
+
+  return periods
+    .map((period) => {
+      const periodTasks = todaysTasks.filter((task) => {
+        const start = timeToMinutes(task.time);
+        return start >= period.start && start < period.end;
+      });
+      const nextTask = periodTasks.find((task) => !task.done);
+      const label = nextTask
+        ? `${formatTimeFromMinutes(timeToMinutes(nextTask.time))} - ${nextTask.title}`
+        : periodTasks.length > 0
+          ? "Finished"
+          : "Clear";
+      const countLabel = nextTask
+        ? `${periodTasks.filter((task) => !task.done).length} left`
+        : periodTasks.length > 0
+          ? `${periodTasks.length} done`
+          : "No tasks";
+
+      return `
+        <article class="today-daypart">
+          <strong>${escapeHTML(period.label)}</strong>
+          <span title="${escapeHTML(countLabel)}">${escapeHTML(label)}</span>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function applyTaskFormCollapseState() {
+  const canCollapse = taskFormCollapseQuery.matches;
+  const isCollapsed = canCollapse && taskFormCollapsedPreference;
+
+  taskForm.classList.toggle("collapsed", isCollapsed);
+  if (taskFormToggle) {
+    taskFormToggle.hidden = !canCollapse;
+    taskFormToggle.setAttribute("aria-hidden", String(!canCollapse));
+    taskFormToggle.setAttribute("aria-expanded", String(!isCollapsed));
+    taskFormToggle.textContent = isCollapsed ? "Expand" : "Collapse";
+  }
 }
 
 function refreshTopStreakStatus() {
@@ -3758,6 +3866,383 @@ function sendTaskReminder(task) {
   }
 
   showAppToast(title, body);
+}
+
+function openAssistant() {
+  closeAllMenus();
+  assistantOverlay?.classList.remove("hidden");
+  assistantOverlay?.setAttribute("aria-hidden", "false");
+  updateAssistantVoiceAvailability();
+  setTimeout(() => assistantPromptInput?.focus(), 60);
+}
+
+function closeAssistant() {
+  stopAssistantVoice();
+  assistantOverlay?.classList.add("hidden");
+  assistantOverlay?.setAttribute("aria-hidden", "true");
+}
+
+function handleAssistantSubmit(event) {
+  event.preventDefault();
+  answerAssistantPrompt(assistantPromptInput.value);
+}
+
+function answerAssistantPrompt(prompt) {
+  const normalizedPrompt = String(prompt ?? "").trim();
+  if (!normalizedPrompt) {
+    renderAssistantResponse({
+      title: "Ask me anything about your schedule.",
+      intro: "Try asking about overload, free time, study blocks, overlaps, xp, or how to make today easier.",
+      bullets: [],
+    });
+    return;
+  }
+
+  const advice = createAssistantAdvice(normalizedPrompt);
+  renderAssistantResponse(advice);
+}
+
+function renderAssistantResponse({ title, intro, bullets }) {
+  if (!assistantResponse) return;
+
+  const bulletList = Array.isArray(bullets) && bullets.length > 0
+    ? `<ul>${bullets.map((bullet) => `<li>${escapeHTML(bullet)}</li>`).join("")}</ul>`
+    : "";
+
+  assistantResponse.innerHTML = `
+    <strong>${escapeHTML(title)}</strong>
+    <p>${escapeHTML(intro)}</p>
+    ${bulletList}
+  `;
+}
+
+function createAssistantAdvice(prompt) {
+  const lowerPrompt = prompt.toLowerCase();
+  const scope = getAssistantScope(lowerPrompt);
+  const occurrences = buildScheduleOccurrences();
+  const scopedTasks = occurrences
+    .filter((task) => !task.skipped && task.occurrenceDate >= scope.start && task.occurrenceDate <= scope.end)
+    .sort((first, second) => `${first.occurrenceDate}T${first.time}`.localeCompare(`${second.occurrenceDate}T${second.time}`));
+  const activeTasks = scopedTasks.filter((task) => !task.done);
+  const completedTasks = scopedTasks.filter((task) => task.done);
+  const overlaps = findOverlaps(activeTasks);
+  const totalMinutes = activeTasks.reduce((total, task) => total + Number(task.duration || 0), 0);
+  const completedMinutes = completedTasks.reduce((total, task) => total + calculateCompletedMinutes(task), 0);
+  const points = completedTasks.reduce((total, task) => total + calculatePoints(task), 0);
+
+  if (lowerPrompt.includes("overlap") || lowerPrompt.includes("busy") || lowerPrompt.includes("clash")) {
+    return createOverlapAdvice(scope, activeTasks, overlaps);
+  }
+
+  if (lowerPrompt.includes("study") || lowerPrompt.includes("focus") || lowerPrompt.includes("homework")) {
+    return createStudyAdvice(scope, activeTasks);
+  }
+
+  if (lowerPrompt.includes("xp") || lowerPrompt.includes("point") || lowerPrompt.includes("streak")) {
+    return createXpAdvice(scope, completedTasks, completedMinutes, points);
+  }
+
+  if (lowerPrompt.includes("free") || lowerPrompt.includes("gap") || lowerPrompt.includes("when")) {
+    return createFreeTimeAdvice(scope, activeTasks);
+  }
+
+  return createGeneralScheduleAdvice(scope, activeTasks, overlaps, totalMinutes, completedTasks, points);
+}
+
+function getAssistantScope(lowerPrompt) {
+  if (lowerPrompt.includes("tomorrow")) {
+    const date = toDateInputValue(addDays(startOfToday(new Date()), 1));
+    return { label: "tomorrow", start: date, end: date, days: 1 };
+  }
+
+  if (lowerPrompt.includes("week")) {
+    const weekStart = getWeekStart(parseISODate(scheduleAnchorDate || todayISO));
+    const weekEnd = addDays(weekStart, 6);
+    return {
+      label: "this week",
+      start: toDateInputValue(weekStart),
+      end: toDateInputValue(weekEnd),
+      days: 7,
+    };
+  }
+
+  if (lowerPrompt.includes("month")) {
+    return {
+      label: "the next month",
+      start: todayISO,
+      end: toDateInputValue(addDays(startOfToday(new Date()), 30)),
+      days: 31,
+    };
+  }
+
+  const date = lowerPrompt.includes("selected") ? scheduleAnchorDate : todayISO;
+  return { label: date === todayISO ? "today" : formatDateHeading(date), start: date, end: date, days: 1 };
+}
+
+function createOverlapAdvice(scope, activeTasks, overlaps) {
+  if (activeTasks.length === 0) {
+    return {
+      title: `No active tasks for ${scope.label}.`,
+      intro: "There is nothing to check yet.",
+      bullets: ["Add a few tasks first, then I can spot clashes and busy patches."],
+    };
+  }
+
+  if (overlaps.length === 0) {
+    return {
+      title: "No overlaps found.",
+      intro: `Your active tasks for ${scope.label} are not clashing.`,
+      bullets: createBusyDayBullets(activeTasks),
+    };
+  }
+
+  return {
+    title: `${overlaps.length} overlap${overlaps.length === 1 ? "" : "s"} found.`,
+    intro: `These are the first clashes I noticed for ${scope.label}.`,
+    bullets: overlaps.slice(0, 4).map((overlap) =>
+      `${overlap.first.title} (${formatTimeRange(overlap.first)}) overlaps ${overlap.second.title} (${formatTimeRange(overlap.second)}) on ${formatDateHeading(overlap.first.occurrenceDate)}.`,
+    ),
+  };
+}
+
+function createStudyAdvice(scope, activeTasks) {
+  const targetDate = scope.start;
+  const dayTasks = activeTasks.filter((task) => task.occurrenceDate === targetDate);
+  const freeWindows = findFreeTimeWindows(dayTasks, targetDate, 45);
+  const bestWindow = freeWindows.find((window) => window.minutes >= 60) ?? freeWindows[0];
+
+  if (!bestWindow) {
+    return {
+      title: "That day is pretty packed.",
+      intro: `I could not find a clean study block on ${formatDateHeading(targetDate)}.`,
+      bullets: [
+        "Try moving one lower priority task earlier or later.",
+        "A 30 minute study block is still useful if a full hour will not fit.",
+      ],
+    };
+  }
+
+  return {
+    title: "Good study window found.",
+    intro: `${formatTimeFromMinutes(bestWindow.start)} to ${formatTimeFromMinutes(bestWindow.end)} looks like your cleanest opening on ${formatDateHeading(targetDate)}.`,
+    bullets: [
+      `That gives you about ${formatMinutesAsHours(bestWindow.minutes)} free.`,
+      "Put the hardest study task near the start of that block, then leave a short break after it.",
+    ],
+  };
+}
+
+function createXpAdvice(scope, completedTasks, completedMinutes, points) {
+  const todayCompletedMinutes = getCompletedMinutesForDate(buildCompletedHistory(), todayISO);
+  const minutesNeeded = Math.max(STREAK_MINUTES_TO_KEEP - todayCompletedMinutes, 0);
+  const bullets = [
+    `${completedTasks.length} completed task${completedTasks.length === 1 ? "" : "s"} in ${scope.label}.`,
+    `${formatMinutesAsHours(completedMinutes)} completed and ${formatPoints(points)} xp earned in this view.`,
+  ];
+
+  bullets.push(minutesNeeded === 0
+    ? "Your streak is safe for today."
+    : `${minutesNeeded} more minute${minutesNeeded === 1 ? "" : "s"} will protect today's streak.`);
+
+  return {
+    title: "Here is your xp picture.",
+    intro: "I checked completed work, xp, and streak progress.",
+    bullets,
+  };
+}
+
+function createFreeTimeAdvice(scope, activeTasks) {
+  const targetDate = scope.start;
+  const dayTasks = activeTasks.filter((task) => task.occurrenceDate === targetDate);
+  const freeWindows = findFreeTimeWindows(dayTasks, targetDate, 30).slice(0, 4);
+
+  if (freeWindows.length === 0) {
+    return {
+      title: "No clear free windows found.",
+      intro: `Your schedule for ${formatDateHeading(targetDate)} is tight between morning and night.`,
+      bullets: ["Try switching the grid to that day and moving a low priority task first."],
+    };
+  }
+
+  return {
+    title: "Best free windows.",
+    intro: `These openings look useful on ${formatDateHeading(targetDate)}.`,
+    bullets: freeWindows.map((window) =>
+      `${formatTimeFromMinutes(window.start)} to ${formatTimeFromMinutes(window.end)} gives about ${formatMinutesAsHours(window.minutes)}.`,
+    ),
+  };
+}
+
+function createGeneralScheduleAdvice(scope, activeTasks, overlaps, totalMinutes, completedTasks, points) {
+  if (activeTasks.length === 0 && completedTasks.length === 0) {
+    return {
+      title: `Nothing planned for ${scope.label} yet.`,
+      intro: "A simple starter schedule would be one main task, one short admin task, and one break.",
+      bullets: [
+        "Add your most important task first so the day has a clear anchor.",
+        "Keep the first version light, then fill gaps later.",
+      ],
+    };
+  }
+
+  const bullets = [
+    `${activeTasks.length} active task${activeTasks.length === 1 ? "" : "s"} planned for ${scope.label}.`,
+    `${formatMinutesAsHours(totalMinutes)} still scheduled, with ${formatPoints(points)} xp already earned.`,
+  ];
+
+  if (overlaps.length > 0) {
+    bullets.push(`Fix ${overlaps.length} overlap${overlaps.length === 1 ? "" : "s"} first, because they will make the day feel messy.`);
+  } else {
+    bullets.push("No overlaps found, so the structure is looking clean.");
+  }
+
+  if (totalMinutes > 4 * 60 && scope.days === 1) {
+    bullets.push("This is a heavy day. Move one low priority task or add a longer break after your longest block.");
+  } else if (totalMinutes < 90 && scope.days === 1) {
+    bullets.push("The day is light. You could add one focused task if you want more progress.");
+  } else {
+    bullets.push("The workload looks reasonable. Keep your hardest task near the time you usually have the most energy.");
+  }
+
+  return {
+    title: "Here is how I would tune it.",
+    intro: "I looked at workload, overlaps, completed xp, and task spacing.",
+    bullets,
+  };
+}
+
+function createBusyDayBullets(tasksToCheck) {
+  if (tasksToCheck.length === 0) return ["No active tasks to review."];
+
+  const longestTask = tasksToCheck.reduce((longest, task) =>
+    Number(task.duration) > Number(longest.duration) ? task : longest,
+  tasksToCheck[0]);
+
+  return [
+    `Longest block: ${longestTask.title} at ${formatTimeRange(longestTask)}.`,
+    "If the day feels too full, move the longest low-pressure task first.",
+  ];
+}
+
+function findFreeTimeWindows(dayTasks, date, minimumMinutes) {
+  const dayStart = 7 * 60;
+  const dayEnd = 22 * 60;
+  const busyRanges = dayTasks
+    .filter((task) => task.occurrenceDate === date)
+    .map(getTaskTimeRange)
+    .map((range) => ({
+      start: clamp(range.start, dayStart, dayEnd),
+      end: clamp(range.end, dayStart, dayEnd),
+    }))
+    .filter((range) => range.end > range.start)
+    .sort((first, second) => first.start - second.start || first.end - second.end);
+  const mergedRanges = busyRanges.reduce((ranges, range) => {
+    const previous = ranges.at(-1);
+    if (previous && range.start <= previous.end) {
+      previous.end = Math.max(previous.end, range.end);
+    } else {
+      ranges.push({ ...range });
+    }
+    return ranges;
+  }, []);
+  const windows = [];
+  let cursor = dayStart;
+
+  mergedRanges.forEach((range) => {
+    if (range.start - cursor >= minimumMinutes) {
+      windows.push({ start: cursor, end: range.start, minutes: range.start - cursor });
+    }
+    cursor = Math.max(cursor, range.end);
+  });
+
+  if (dayEnd - cursor >= minimumMinutes) {
+    windows.push({ start: cursor, end: dayEnd, minutes: dayEnd - cursor });
+  }
+
+  return windows.sort((first, second) => second.minutes - first.minutes);
+}
+
+function updateAssistantVoiceAvailability() {
+  if (!assistantVoiceButton) return;
+
+  const isSupported = Boolean(getSpeechRecognitionConstructor());
+  assistantVoiceButton.disabled = false;
+  assistantVoiceButton.setAttribute("aria-disabled", String(!isSupported));
+  assistantVoiceButton.title = isSupported
+    ? "Use voice command"
+    : "Voice commands are not supported in this browser.";
+}
+
+function toggleAssistantVoice() {
+  if (assistantIsListening) {
+    stopAssistantVoice();
+    return;
+  }
+
+  const SpeechRecognition = getSpeechRecognitionConstructor();
+  if (!SpeechRecognition) {
+    renderAssistantResponse({
+      title: "Voice is not available here.",
+      intro: "This browser does not support speech recognition for local web apps.",
+      bullets: ["You can still type prompts into the assistant box."],
+    });
+    return;
+  }
+
+  assistantRecognition = new SpeechRecognition();
+  assistantRecognition.lang = "en-AU";
+  assistantRecognition.continuous = false;
+  assistantRecognition.interimResults = false;
+  assistantRecognition.onstart = () => setAssistantListening(true);
+  assistantRecognition.onend = () => setAssistantListening(false);
+  assistantRecognition.onerror = () => {
+    setAssistantListening(false);
+    renderAssistantResponse({
+      title: "I could not hear that one.",
+      intro: "Try the mic again, or type the prompt instead.",
+      bullets: [],
+    });
+  };
+  assistantRecognition.onresult = (event) => {
+    const transcript = Array.from(event.results)
+      .flatMap((result) => Array.from(result))
+      .map((result) => result.transcript)
+      .join(" ")
+      .trim();
+
+    if (!transcript) return;
+    assistantPromptInput.value = transcript;
+    answerAssistantPrompt(transcript);
+  };
+
+  try {
+    assistantRecognition.start();
+  } catch {
+    setAssistantListening(false);
+  }
+}
+
+function stopAssistantVoice() {
+  if (assistantRecognition) {
+    try {
+      assistantRecognition.stop();
+    } catch {
+      // Ignore stop failures when the browser has already ended listening.
+    }
+  }
+  setAssistantListening(false);
+}
+
+function setAssistantListening(isListening) {
+  assistantIsListening = isListening;
+  assistantVoiceButton?.classList.toggle("listening", isListening);
+  if (assistantVoiceButton) {
+    assistantVoiceButton.setAttribute("aria-label", isListening ? "Stop voice command" : "Use voice command");
+  }
+}
+
+function getSpeechRecognitionConstructor() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition;
 }
 
 function showAppToast(title, message) {

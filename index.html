@@ -208,6 +208,45 @@
       <div class="focus-overlay" id="focusOverlay" aria-live="polite"></div>
       <div class="streak-celebration-overlay" id="streakCelebrationOverlay" aria-live="polite"></div>
       <div class="weekly-report-overlay" id="weeklyReportOverlay" aria-live="polite"></div>
+      <div class="assistant-overlay hidden" id="assistantOverlay" aria-hidden="true">
+        <section class="assistant-panel" role="dialog" aria-modal="true" aria-labelledby="assistantTitle">
+          <div class="assistant-header">
+            <div>
+              <p class="eyebrow">Schedule assistant</p>
+              <h2 id="assistantTitle">Ask Shedulr</h2>
+            </div>
+            <button class="close-button" id="closeAssistantButton" type="button" aria-label="Close assistant">x</button>
+          </div>
+
+          <div class="assistant-response" id="assistantResponse" aria-live="polite">
+            <strong>Ready when you are.</strong>
+            <p>Ask me to find a better time, spot overload, check your week, or help plan study and breaks.</p>
+          </div>
+
+          <div class="assistant-prompts" aria-label="Assistant prompt examples">
+            <button type="button" data-assistant-prompt="How should I improve today's schedule?">Improve today</button>
+            <button type="button" data-assistant-prompt="Find any overlaps or busy parts this week.">Check week</button>
+            <button type="button" data-assistant-prompt="When is a good time for a study block?">Study time</button>
+          </div>
+
+          <form class="assistant-form" id="assistantForm">
+            <label>
+              Prompt
+              <textarea id="assistantPrompt" rows="3" placeholder="Example: Make tomorrow easier, find my best free time, or check if I have too much study."></textarea>
+            </label>
+            <div class="assistant-actions">
+              <button class="assistant-mic-button" id="assistantVoiceButton" type="button" aria-label="Use voice command">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3z"></path>
+                  <path d="M5 11a7 7 0 0 0 14 0"></path>
+                  <path d="M12 18v3"></path>
+                </svg>
+              </button>
+              <button class="primary-button" type="submit">Ask</button>
+            </div>
+          </form>
+        </section>
+      </div>
       <div class="app-toast" id="appToast" role="status" aria-live="polite"></div>
       <div class="edit-overlay hidden" id="editTaskOverlay" aria-hidden="true">
         <section class="edit-modal" role="dialog" aria-modal="true" aria-labelledby="editTaskTitle">
@@ -298,102 +337,122 @@
       <section class="tab-panel active" id="homePanel" aria-labelledby="Home">
         <div class="panel-grid">
           <form class="task-form" id="taskForm">
-            <div class="form-header">
-              <h2>Add a task</h2>
-              <p>Plan what needs doing and when it should happen.</p>
-            </div>
-
-            <label>
-              Task name
-              <input id="taskTitle" name="title" type="text" placeholder="Study, workout, meeting..." required />
-            </label>
-
-            <div class="template-tools">
-              <label>
-                Template
-                <select id="taskTemplate" aria-label="Choose task template"></select>
-              </label>
-              <button class="secondary-button" id="saveTemplateButton" type="button">Save current</button>
-            </div>
-
-            <div class="field-row date-time-row">
-              <label>
-                Date
-                <input id="taskDate" name="date" type="date" required />
-              </label>
-              <label>
-                Estimated start
-                <input id="taskTime" name="time" type="time" required />
-              </label>
-            </div>
-
-            <div class="field-row field-row-three">
-              <label>
-                Duration
-                <select id="taskDuration" name="duration">
-                  <option value="15">15 min</option>
-                  <option value="30" selected>30 min</option>
-                  <option value="45">45 min</option>
-                  <option value="60">1 hour</option>
-                  <option value="90">1.5 hours</option>
-                  <option value="120">2 hours</option>
-                  <option value="150">2.5 hours</option>
-                  <option value="180">3 hours</option>
-                  <option value="240">4 hours</option>
-                  <option value="300">5 hours</option>
-                </select>
-              </label>
-              <label>
-                Type
-                <select id="taskType" name="type">
-                  <option value="Focus">Focus</option>
-                  <option value="Personal">Personal</option>
-                  <option value="Study">Study</option>
-                  <option value="Health">Health</option>
-                  <option value="Errand">Errand</option>
-                  <option value="custom">Custom type...</option>
-                </select>
-                <input id="customTaskType" class="custom-type-input hidden" name="customType" type="text" maxlength="24" placeholder="New type name" />
-              </label>
-              <label id="priorityField">
-                Priority
-                <select id="taskPriority" name="priority">
-                  <option value="Low">Low</option>
-                  <option value="Medium" selected>Medium</option>
-                  <option value="High">High</option>
-                </select>
-              </label>
-            </div>
-
-            <label>
-              Notes
-              <textarea id="taskNotes" name="notes" rows="4" placeholder="Add details, links, or anything you need to remember."></textarea>
-            </label>
-
-            <fieldset class="repeat-box">
-              <legend>Repeat</legend>
-              <label class="repeat-toggle">
-                <input id="taskRepeats" name="repeats" type="checkbox" />
-                Repeat this task every week
-              </label>
-              <div class="weekday-picker" id="weekdayPicker" aria-label="Repeat days">
-                <label><input name="repeatDays" type="checkbox" value="1" /> Mon</label>
-                <label><input name="repeatDays" type="checkbox" value="2" /> Tue</label>
-                <label><input name="repeatDays" type="checkbox" value="3" /> Wed</label>
-                <label><input name="repeatDays" type="checkbox" value="4" /> Thu</label>
-                <label><input name="repeatDays" type="checkbox" value="5" /> Fri</label>
-                <label><input name="repeatDays" type="checkbox" value="6" /> Sat</label>
-                <label><input name="repeatDays" type="checkbox" value="0" /> Sun</label>
+            <div class="form-header task-form-header">
+              <div>
+                <h2>Add a task</h2>
+                <p>Plan what needs doing and when it should happen.</p>
               </div>
-            </fieldset>
+              <button class="secondary-button compact-button task-form-toggle" id="taskFormToggle" type="button" aria-expanded="true" aria-controls="taskFormBody">Collapse</button>
+            </div>
 
-            <button class="primary-button" type="submit">Add to schedule</button>
+            <div class="task-form-body" id="taskFormBody">
+              <label>
+                Task name
+                <input id="taskTitle" name="title" type="text" placeholder="Study, workout, meeting..." required />
+              </label>
+
+              <div class="template-tools">
+                <label>
+                  Template
+                  <select id="taskTemplate" aria-label="Choose task template"></select>
+                </label>
+                <button class="secondary-button" id="saveTemplateButton" type="button">Save current</button>
+              </div>
+
+              <div class="field-row date-time-row">
+                <label>
+                  Date
+                  <input id="taskDate" name="date" type="date" required />
+                </label>
+                <label>
+                  Estimated start
+                  <input id="taskTime" name="time" type="time" required />
+                </label>
+              </div>
+
+              <div class="field-row field-row-three">
+                <label>
+                  Duration
+                  <select id="taskDuration" name="duration">
+                    <option value="15">15 min</option>
+                    <option value="30" selected>30 min</option>
+                    <option value="45">45 min</option>
+                    <option value="60">1 hour</option>
+                    <option value="90">1.5 hours</option>
+                    <option value="120">2 hours</option>
+                    <option value="150">2.5 hours</option>
+                    <option value="180">3 hours</option>
+                    <option value="240">4 hours</option>
+                    <option value="300">5 hours</option>
+                  </select>
+                </label>
+                <label>
+                  Type
+                  <select id="taskType" name="type">
+                    <option value="Focus">Focus</option>
+                    <option value="Personal">Personal</option>
+                    <option value="Study">Study</option>
+                    <option value="Health">Health</option>
+                    <option value="Errand">Errand</option>
+                    <option value="custom">Custom type...</option>
+                  </select>
+                  <input id="customTaskType" class="custom-type-input hidden" name="customType" type="text" maxlength="24" placeholder="New type name" />
+                </label>
+                <label id="priorityField">
+                  Priority
+                  <select id="taskPriority" name="priority">
+                    <option value="Low">Low</option>
+                    <option value="Medium" selected>Medium</option>
+                    <option value="High">High</option>
+                  </select>
+                </label>
+              </div>
+
+              <label>
+                Notes
+                <textarea id="taskNotes" name="notes" rows="4" placeholder="Add details, links, or anything you need to remember."></textarea>
+              </label>
+
+              <fieldset class="repeat-box">
+                <legend>Repeat</legend>
+                <label class="repeat-toggle">
+                  <input id="taskRepeats" name="repeats" type="checkbox" />
+                  Repeat this task every week
+                </label>
+                <div class="weekday-picker" id="weekdayPicker" aria-label="Repeat days">
+                  <label><input name="repeatDays" type="checkbox" value="1" /> Mon</label>
+                  <label><input name="repeatDays" type="checkbox" value="2" /> Tue</label>
+                  <label><input name="repeatDays" type="checkbox" value="3" /> Wed</label>
+                  <label><input name="repeatDays" type="checkbox" value="4" /> Thu</label>
+                  <label><input name="repeatDays" type="checkbox" value="5" /> Fri</label>
+                  <label><input name="repeatDays" type="checkbox" value="6" /> Sat</label>
+                  <label><input name="repeatDays" type="checkbox" value="0" /> Sun</label>
+                </div>
+              </fieldset>
+
+              <button class="primary-button" type="submit">Add to schedule</button>
+            </div>
           </form>
 
           <aside class="day-summary">
-            <h2>Today</h2>
-            <div class="summary-number" id="todayCount">0</div>
-            <p id="todaySummary">No tasks scheduled for today yet.</p>
+            <div class="day-summary-header">
+              <div>
+                <p class="eyebrow">Today</p>
+                <h2>Schedule progress</h2>
+              </div>
+              <span class="today-status-chip" id="todayStatusChip">0%</span>
+            </div>
+            <div class="today-progress-layout">
+              <div class="today-progress-ring" id="todayProgressRing" style="--today-progress: 0deg">
+                <span id="todayProgressPercent">0%</span>
+                <small>complete</small>
+              </div>
+              <div>
+                <strong class="today-count-label" id="todayCount">0 tasks</strong>
+                <p id="todaySummary">No tasks scheduled for today yet.</p>
+              </div>
+            </div>
+            <div class="today-dayparts" id="todayDayparts" aria-label="Today's time periods"></div>
           </aside>
         </div>
       </section>
@@ -540,6 +599,12 @@
             <path d="M5 19V9M12 19V5M19 19v-7"></path>
           </svg>
           <span class="tab-label">Stats</span>
+        </button>
+        <button class="assistant-fab" id="assistantButton" type="button" aria-label="Open schedule assistant">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3l1.8 5.1L19 10l-5.2 1.9L12 17l-1.8-5.1L5 10l5.2-1.9z"></path>
+            <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"></path>
+          </svg>
         </button>
       </nav>
 
