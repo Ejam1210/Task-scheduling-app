@@ -13,6 +13,8 @@ const STREAK_CELEBRATION_STORAGE_KEY = "daily-task-scheduler.streak-celebrated-d
 const PROFILE_STORAGE_KEY = "daily-task-scheduler.profiles";
 const ACTIVE_PROFILE_STORAGE_KEY = "daily-task-scheduler.active-profile";
 const TASK_FORM_COLLAPSED_STORAGE_KEY = "daily-task-scheduler.task-form-collapsed";
+const HOME_WIDGETS_STORAGE_KEY = "daily-task-scheduler.home-widgets";
+const HOME_WIDGET_LAYOUT_STORAGE_KEY = "daily-task-scheduler.home-widget-layout";
 const SUPABASE_URL = "https://xaacjrtkzvphztifnywm.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhYWNqcnRrenZwaHp0aWZueXdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMDA4NzcsImV4cCI6MjA5NTg3Njg3N30.mTBCPN4JiVDWQVVxBXyFE67vJ3i8A4JoW8mpUO1wDfo";
 const CLOUD_DATA_TABLE = "scheduler_app_data";
@@ -26,6 +28,8 @@ const PROFILE_SCOPED_STORAGE_KEYS = [
   TEMPLATE_STORAGE_KEY,
   MISSED_COLLAPSE_STORAGE_KEY,
   STREAK_CELEBRATION_STORAGE_KEY,
+  HOME_WIDGETS_STORAGE_KEY,
+  HOME_WIDGET_LAYOUT_STORAGE_KEY,
 ];
 const SCHEDULE_DAYS_TO_SHOW = 30;
 const GRID_MINUTE_HEIGHT = 2.05;
@@ -40,11 +44,22 @@ const TASK_SWIPE_DELETE_DISTANCE = 96;
 const STREAK_MINUTES_TO_KEEP = 10;
 const TASK_REMINDER_INTERVAL_MS = 30 * 1000;
 const TASK_REMINDER_GRACE_MS = 2 * 60 * 1000;
+const HOME_WIDGET_SNAP_SIZE = 24;
+const HOME_WIDGET_DESKTOP_QUERY = "(min-width: 761px) and (pointer: fine)";
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const BUILT_IN_TASK_TYPES = ["Focus", "Personal", "Study", "Health", "Errand"];
 const PRIORITY_LEVELS = ["Low", "Medium", "High"];
-const TASK_FORM_COLLAPSE_QUERY = "(max-width: 760px)";
-const taskFormCollapseQuery = window.matchMedia(TASK_FORM_COLLAPSE_QUERY);
+const HOME_WIDGET_DEFINITIONS = [
+  { id: "stats", label: "Stats" },
+  { id: "streak", label: "Streak" },
+  { id: "dayGrid", label: "Day grid" },
+  { id: "week", label: "Week" },
+  { id: "reminders", label: "Reminders" },
+  { id: "upcoming", label: "Upcoming" },
+  { id: "focus", label: "Focus" },
+  { id: "typeMix", label: "Types" },
+  { id: "xpGoal", label: "xp goal" },
+];
 
 const taskForm = document.querySelector("#taskForm");
 const taskList = document.querySelector("#taskList");
@@ -86,9 +101,12 @@ const gridZoomInButton = document.querySelector("#gridZoomIn");
 const gridZoomOutButton = document.querySelector("#gridZoomOut");
 const gridZoomLevel = document.querySelector("#gridZoomLevel");
 const taskTitleInput = document.querySelector("#taskTitle");
+const taskItemKindInput = document.querySelector("#taskItemKind");
 const taskDateInput = document.querySelector("#taskDate");
 const taskTimeInput = document.querySelector("#taskTime");
+const taskTimeLabel = document.querySelector("#taskTimeLabel span");
 const taskDurationInput = document.querySelector("#taskDuration");
+const taskDurationField = document.querySelector("#taskDurationField");
 const taskTypeInput = document.querySelector("#taskType");
 const customTaskTypeInput = document.querySelector("#customTaskType");
 const taskPriorityInput = document.querySelector("#taskPriority");
@@ -142,14 +160,21 @@ const assistantPromptInput = document.querySelector("#assistantPrompt");
 const assistantResponse = document.querySelector("#assistantResponse");
 const assistantVoiceButton = document.querySelector("#assistantVoiceButton");
 const assistantPromptButtons = document.querySelectorAll("[data-assistant-prompt]");
+const homeWidgetAddButton = document.querySelector("#homeWidgetAddButton");
+const homeWidgetPicker = document.querySelector("#homeWidgetPicker");
+const homeWidgetControls = document.querySelector("#homeWidgetControls");
+const homeWidgetGrid = document.querySelector("#homeWidgetGrid");
 const editTaskOverlay = document.querySelector("#editTaskOverlay");
 const editTaskForm = document.querySelector("#editTaskForm");
 const editTaskIdInput = document.querySelector("#editTaskId");
 const editOccurrenceDateInput = document.querySelector("#editOccurrenceDate");
+const editItemKindInput = document.querySelector("#editItemKind");
 const editTaskNameInput = document.querySelector("#editTaskName");
 const editTaskDateInput = document.querySelector("#editTaskDate");
 const editTaskTimeInput = document.querySelector("#editTaskTime");
+const editTaskTimeLabel = document.querySelector("#editTaskTimeLabel span");
 const editTaskDurationInput = document.querySelector("#editTaskDuration");
+const editTaskDurationField = document.querySelector("#editTaskDurationField");
 const editTaskTypeInput = document.querySelector("#editTaskType");
 const editTaskPriorityInput = document.querySelector("#editTaskPriority");
 const editTaskNotesInput = document.querySelector("#editTaskNotes");
@@ -168,6 +193,8 @@ migrateLegacyProfileData();
 let tasks = loadTasks();
 let customTaskTypes = mergeCustomTaskTypes(loadCustomTaskTypes(), tasks.map((task) => task.type));
 let weeklyGoals = loadWeeklyGoals();
+let homeWidgets = loadHomeWidgets();
+let homeWidgetLayout = loadHomeWidgetLayout();
 let featureSettings;
 let taskTemplates = loadTaskTemplates();
 let currentTheme = localStorage.getItem(THEME_STORAGE_KEY) ?? "light";
@@ -199,6 +226,9 @@ let streakCelebrationTimer = null;
 let assistantRecognition = null;
 let assistantIsListening = false;
 let taskFormCollapsedPreference = localStorage.getItem(TASK_FORM_COLLAPSED_STORAGE_KEY) === "true";
+let displayedTodayXp = null;
+let pendingXpAnimation = null;
+let homeWidgetDragState = null;
 
 const TASK_TYPE_STYLES = {
   Focus: { color: "#2d6f9f", bg: "rgba(45, 111, 159, 0.14)" },
@@ -317,13 +347,9 @@ renderTaskTemplateOptions();
 applyWeeklyGoalsToControls();
 applyFeatureSettingsToControls();
 applyTheme(currentTheme);
-applyTaskFormCollapseState();
-
-if (taskFormCollapseQuery.addEventListener) {
-  taskFormCollapseQuery.addEventListener("change", applyTaskFormCollapseState);
-} else {
-  taskFormCollapseQuery.addListener(applyTaskFormCollapseState);
-}
+setTaskFormCollapsed(taskFormCollapsedPreference);
+toggleItemKindFields();
+renderHomeWidgetControls();
 
 document.querySelectorAll(".tab-button").forEach((button) => {
   button.addEventListener("click", () => {
@@ -386,16 +412,25 @@ scheduleGrid.addEventListener("touchmove", handleGridTouchMove, { passive: false
 scheduleGrid.addEventListener("touchend", resetGridPinch);
 gridZoomInButton.addEventListener("click", () => setScheduleGridZoom(scheduleGridZoom + 0.15));
 gridZoomOutButton.addEventListener("click", () => setScheduleGridZoom(scheduleGridZoom - 0.15));
+taskItemKindInput.addEventListener("change", toggleItemKindFields);
 taskTypeInput.addEventListener("change", toggleCustomTypeInput);
 taskTemplateSelect.addEventListener("change", applySelectedTaskTemplate);
 saveTemplateButton.addEventListener("click", saveCurrentTaskTemplate);
 taskFormToggle?.addEventListener("click", () => {
-  if (!taskFormCollapseQuery.matches) return;
-
   taskFormCollapsedPreference = !taskFormCollapsedPreference;
-  localStorage.setItem(TASK_FORM_COLLAPSED_STORAGE_KEY, String(taskFormCollapsedPreference));
-  applyTaskFormCollapseState();
+  setTaskFormCollapsed(taskFormCollapsedPreference);
 });
+editItemKindInput.addEventListener("change", toggleEditItemKindFields);
+homeWidgetAddButton?.addEventListener("click", toggleHomeWidgetPicker);
+homeWidgetControls?.addEventListener("click", handleHomeWidgetToggle);
+homeWidgetGrid?.addEventListener("click", handleHomeWidgetGridClick);
+homeWidgetGrid?.addEventListener("pointerdown", startHomeWidgetDrag);
+homeWidgetGrid?.addEventListener("pointermove", updateHomeWidgetDrag);
+homeWidgetGrid?.addEventListener("pointerup", finishHomeWidgetDrag);
+homeWidgetGrid?.addEventListener("pointercancel", cancelHomeWidgetDrag);
+homeWidgetGrid?.addEventListener("lostpointercapture", cancelHomeWidgetDrag);
+window.addEventListener("resize", applyHomeWidgetLayout);
+document.addEventListener("click", handleHomeWidgetOutsideClick);
 profileButton.addEventListener("click", openProfileMenu);
 closeProfileButton.addEventListener("click", closeProfileMenu);
 editProfileButton.addEventListener("click", openProfileEditor);
@@ -447,12 +482,14 @@ taskForm.addEventListener("submit", (event) => {
   const selectedRepeatDays = getSelectedRepeatDays();
   const startDate = formData.get("date");
   const taskType = getSubmittedTaskType(formData);
+  const itemKind = normalizeItemKind(formData.get("itemKind"));
   const task = {
     id: crypto.randomUUID(),
+    itemKind,
     title: formData.get("title").trim(),
     date: startDate,
     time: formData.get("time"),
-    duration: Number(formData.get("duration")),
+    duration: itemKind === "reminder" ? 0 : Number(formData.get("duration")),
     type: taskType,
     priority: normalizePriority(formData.get("priority")),
     notes: formData.get("notes").trim(),
@@ -502,10 +539,16 @@ function handleTaskAction(event) {
     clearActiveTimerFor(taskId, occurrenceDate);
   }
 
+  if (button.dataset.action === "complete-reminder") {
+    tasks = tasks.map((task) => markTaskComplete(task, taskId, occurrenceDate, 0, 0));
+    clearActiveTimerFor(taskId, occurrenceDate);
+  }
+
   if (button.dataset.action === "start") {
     if (activeTimer && !isActiveTimerFor({ id: taskId, occurrenceDate })) return;
 
     const sourceTask = tasks.find((task) => task.id === taskId);
+    if (!sourceTask || isReminderItem(sourceTask)) return;
     activeTimer = {
       taskId,
       occurrenceDate,
@@ -695,9 +738,10 @@ function render() {
   taskCount.textContent = tasks.length;
   completedCount.textContent = completedToday.length;
   completedPoints.textContent = formatPoints(pointsToday);
-  todayXpValue.textContent = formatPoints(pointsToday);
+  updateTopXp(pointsToday);
   renderTopStreakStatus(completedHistory, getTopStreakDays(completedHistory));
   renderTodaySummary(occurrences);
+  renderHomeWidgets(occurrences, completedHistory);
   renderMissedTasks();
   renderFocusOverlay(occurrences);
   applyFeatureVisibility();
@@ -820,6 +864,7 @@ function createOccurrence(task, date) {
 
   return {
     ...task,
+    itemKind: getItemKind(task),
     priority: normalizePriority(task.priority),
     occurrenceDate: date,
     done,
@@ -833,10 +878,10 @@ function renderTodaySummary(occurrences) {
   const todaysTasks = occurrences
     .filter((task) => task.occurrenceDate === todayISO && !task.skipped)
     .sort((first, second) => timeToMinutes(first.time) - timeToMinutes(second.time));
-  const totalMinutes = todaysTasks.reduce((total, task) => total + Number(task.duration || 0), 0);
+  const totalMinutes = todaysTasks.reduce((total, task) => total + getScheduleProgressWeight(task), 0);
   const completedMinutes = todaysTasks
     .filter((task) => task.done)
-    .reduce((total, task) => total + Number(task.duration || 0), 0);
+    .reduce((total, task) => total + getScheduleProgressWeight(task), 0);
   const progressPercent = totalMinutes > 0
     ? Math.round((completedMinutes / totalMinutes) * 100)
     : 0;
@@ -857,6 +902,62 @@ function renderTodaySummary(occurrences) {
     remaining === 0
       ? "Everything planned for today is complete."
       : `${remaining} task${remaining === 1 ? "" : "s"} still planned for today.`;
+}
+
+function updateTopXp(pointsToday) {
+  const nextXp = Math.round(Number(pointsToday) || 0);
+
+  if (displayedTodayXp === null) {
+    displayedTodayXp = nextXp;
+    todayXpValue.textContent = formatPoints(nextXp);
+    return;
+  }
+
+  if (nextXp > displayedTodayXp) {
+    animateTopXpIncrease(displayedTodayXp, nextXp, pendingXpAnimation ?? nextXp - displayedTodayXp);
+  } else {
+    todayXpValue.textContent = formatPoints(nextXp);
+  }
+
+  displayedTodayXp = nextXp;
+  pendingXpAnimation = null;
+}
+
+function animateTopXpIncrease(fromXp, toXp, gainedXp) {
+  const pill = todayXpValue.closest(".top-xp-pill");
+  const start = performance.now();
+  const duration = 780;
+
+  pill?.classList.remove("xp-pulse");
+  void pill?.offsetWidth;
+  pill?.classList.add("xp-pulse");
+  createXpFlyout(gainedXp, pill);
+
+  const step = (timestamp) => {
+    const progress = clamp((timestamp - start) / duration, 0, 1);
+    const eased = 1 - (1 - progress) ** 3;
+    todayXpValue.textContent = formatPoints(Math.round(fromXp + (toXp - fromXp) * eased));
+    if (progress < 1) requestAnimationFrame(step);
+  };
+
+  requestAnimationFrame(step);
+}
+
+function createXpFlyout(gainedXp, target) {
+  if (!target) return;
+
+  const rect = target.getBoundingClientRect();
+  const startX = Math.min(window.innerWidth - 112, Math.max(18, window.innerWidth * 0.58));
+  const startY = Math.max(96, window.innerHeight - 138);
+  const chip = document.createElement("span");
+  chip.className = "xp-flyout";
+  chip.textContent = `+${formatPoints(gainedXp)} xp`;
+  chip.style.setProperty("--xp-start-x", `${startX}px`);
+  chip.style.setProperty("--xp-start-y", `${startY}px`);
+  chip.style.setProperty("--xp-delta-x", `${rect.left + rect.width / 2 - startX}px`);
+  chip.style.setProperty("--xp-delta-y", `${rect.top + rect.height / 2 - startY}px`);
+  document.body.append(chip);
+  chip.addEventListener("animationend", () => chip.remove(), { once: true });
 }
 
 function createTodayDayparts(todaysTasks) {
@@ -894,17 +995,511 @@ function createTodayDayparts(todaysTasks) {
     .join("");
 }
 
-function applyTaskFormCollapseState() {
-  const canCollapse = taskFormCollapseQuery.matches;
-  const isCollapsed = canCollapse && taskFormCollapsedPreference;
+function renderHomeWidgetControls() {
+  if (!homeWidgetControls) return;
 
+  homeWidgetControls.innerHTML = HOME_WIDGET_DEFINITIONS
+    .map((widget) => `
+      <button class="${homeWidgets.includes(widget.id) ? "active" : ""}" type="button" data-home-widget="${widget.id}">
+        <span>${escapeHTML(widget.label)}</span>
+      </button>
+    `)
+    .join("");
+}
+
+function toggleHomeWidgetPicker(event) {
+  event.stopPropagation();
+  const isOpen = homeWidgetPicker?.classList.contains("hidden");
+  setHomeWidgetPickerOpen(Boolean(isOpen));
+}
+
+function setHomeWidgetPickerOpen(isOpen) {
+  if (!homeWidgetPicker || !homeWidgetAddButton) return;
+
+  homeWidgetPicker.classList.toggle("hidden", !isOpen);
+  homeWidgetAddButton.setAttribute("aria-expanded", String(isOpen));
+}
+
+function handleHomeWidgetOutsideClick(event) {
+  if (!homeWidgetPicker || homeWidgetPicker.classList.contains("hidden")) return;
+  if (event.target.closest(".home-widget-actions")) return;
+  setHomeWidgetPickerOpen(false);
+}
+
+function handleHomeWidgetToggle(event) {
+  const button = event.target.closest("[data-home-widget]");
+  if (!button) return;
+  event.stopPropagation();
+
+  const widgetId = button.dataset.homeWidget;
+  homeWidgets = homeWidgets.includes(widgetId)
+    ? homeWidgets.filter((id) => id !== widgetId)
+    : [...homeWidgets, widgetId];
+  saveHomeWidgets();
+  renderHomeWidgetControls();
+  render();
+}
+
+function handleHomeWidgetGridClick(event) {
+  const removeButton = event.target.closest("[data-remove-home-widget]");
+  if (!removeButton) return;
+
+  homeWidgets = homeWidgets.filter((id) => id !== removeButton.dataset.removeHomeWidget);
+  saveHomeWidgets();
+  renderHomeWidgetControls();
+  render();
+}
+
+function renderHomeWidgets(occurrences, completedHistory) {
+  if (!homeWidgetGrid) return;
+
+  const widgets = homeWidgets
+    .map((widgetId) => createHomeWidget(widgetId, occurrences, completedHistory))
+    .filter(Boolean);
+  homeWidgetGrid.closest(".home-widgets-card")?.classList.toggle("hidden", widgets.length === 0);
+  homeWidgetGrid.innerHTML = widgets.join("");
+  requestAnimationFrame(applyHomeWidgetLayout);
+}
+
+function applyHomeWidgetLayout() {
+  if (!homeWidgetGrid) return;
+
+  const cards = [...homeWidgetGrid.querySelectorAll(".home-widget[data-home-widget-card]")];
+  if (!cards.length) {
+    homeWidgetGrid.classList.remove("home-widget-grid-desktop");
+    homeWidgetGrid.style.height = "";
+    return;
+  }
+
+  if (!isDesktopHomeWidgetLayout()) {
+    homeWidgetGrid.classList.remove("home-widget-grid-desktop", "is-dragging");
+    homeWidgetGrid.style.height = "";
+    cards.forEach((card) => {
+      card.style.left = "";
+      card.style.top = "";
+      card.style.width = "";
+    });
+    return;
+  }
+
+  const metrics = getHomeWidgetLayoutMetrics();
+  homeWidgetGrid.classList.add("home-widget-grid-desktop");
+  cards.forEach((card, index) => {
+    const widgetId = card.dataset.homeWidgetCard;
+    const span = getHomeWidgetSpan(widgetId);
+    const fallback = getDefaultHomeWidgetPosition(index, span, metrics);
+    const savedPosition = homeWidgetLayout[widgetId] ?? fallback;
+    const width = getHomeWidgetWidth(span, metrics);
+    const savedX = Number.isFinite(Number(savedPosition.x)) ? Number(savedPosition.x) : fallback.x;
+    const savedY = Number.isFinite(Number(savedPosition.y)) ? Number(savedPosition.y) : fallback.y;
+    const x = snapHomeWidgetValue(clamp(savedX, 0, Math.max(metrics.width - width, 0)));
+    const y = snapHomeWidgetValue(Math.max(savedY, 0));
+
+    card.style.width = `${width}px`;
+    card.style.left = `${x}px`;
+    card.style.top = `${y}px`;
+  });
+  updateHomeWidgetCanvasHeight();
+}
+
+function isDesktopHomeWidgetLayout() {
+  return window.matchMedia?.(HOME_WIDGET_DESKTOP_QUERY).matches ?? false;
+}
+
+function getHomeWidgetLayoutMetrics() {
+  const width = Math.max(homeWidgetGrid?.clientWidth ?? 0, 320);
+  const gap = 12;
+  const columns = 4;
+  const columnWidth = Math.max(180, Math.floor((width - gap * (columns - 1)) / columns));
+  return { width, gap, columns, columnWidth };
+}
+
+function getHomeWidgetWidth(span, metrics) {
+  return span === 2
+    ? Math.min(metrics.width, metrics.columnWidth * 2 + metrics.gap)
+    : Math.min(metrics.width, metrics.columnWidth);
+}
+
+function getDefaultHomeWidgetPosition(index, span, metrics) {
+  const layoutCursor = homeWidgets
+    .slice(0, index)
+    .reduce((cursor, widgetId) => {
+      const widgetSpan = getHomeWidgetSpan(widgetId);
+      const nextCursor = { ...cursor };
+      if (nextCursor.column + widgetSpan > metrics.columns) {
+        nextCursor.column = 0;
+        nextCursor.row += 1;
+      }
+      nextCursor.column += widgetSpan;
+      if (nextCursor.column >= metrics.columns) {
+        nextCursor.column = 0;
+        nextCursor.row += 1;
+      }
+      return nextCursor;
+    }, { column: 0, row: 0 });
+
+  const column = layoutCursor.column + span > metrics.columns ? 0 : layoutCursor.column;
+  const row = layoutCursor.column + span > metrics.columns ? layoutCursor.row + 1 : layoutCursor.row;
+  return {
+    x: snapHomeWidgetValue(column * (metrics.columnWidth + metrics.gap)),
+    y: snapHomeWidgetValue(row * 164),
+  };
+}
+
+function getHomeWidgetSpan(widgetId) {
+  return widgetId === "dayGrid" || widgetId === "week" ? 2 : 1;
+}
+
+function snapHomeWidgetValue(value) {
+  return Math.round(value / HOME_WIDGET_SNAP_SIZE) * HOME_WIDGET_SNAP_SIZE;
+}
+
+function updateHomeWidgetCanvasHeight() {
+  if (!homeWidgetGrid?.classList.contains("home-widget-grid-desktop")) return;
+  const cards = [...homeWidgetGrid.querySelectorAll(".home-widget[data-home-widget-card]")];
+  const bottom = cards.reduce((maxBottom, card) => {
+    const top = parseFloat(card.style.top) || 0;
+    return Math.max(maxBottom, top + card.offsetHeight);
+  }, 0);
+  homeWidgetGrid.style.height = `${Math.max(bottom + HOME_WIDGET_SNAP_SIZE, 180)}px`;
+}
+
+function startHomeWidgetDrag(event) {
+  if (!isDesktopHomeWidgetLayout() || event.button !== 0) return;
+  if (event.target.closest("button, input, select, textarea, a")) return;
+
+  const card = event.target.closest(".home-widget[data-home-widget-card]");
+  if (!card || !homeWidgetGrid?.contains(card)) return;
+
+  const gridRect = homeWidgetGrid.getBoundingClientRect();
+  const cardRect = card.getBoundingClientRect();
+  homeWidgetDragState = {
+    pointerId: event.pointerId,
+    card,
+    widgetId: card.dataset.homeWidgetCard,
+    offsetX: event.clientX - cardRect.left,
+    offsetY: event.clientY - cardRect.top,
+    width: cardRect.width,
+    height: cardRect.height,
+    gridStartX: gridRect.left,
+    gridStartY: gridRect.top,
+    moved: false,
+  };
+
+  card.classList.add("dragging");
+  homeWidgetGrid.classList.add("is-dragging");
+  card.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+}
+
+function updateHomeWidgetDrag(event) {
+  if (!homeWidgetDragState || event.pointerId !== homeWidgetDragState.pointerId) return;
+
+  const gridRect = homeWidgetGrid.getBoundingClientRect();
+  const maxX = Math.max(homeWidgetGrid.clientWidth - homeWidgetDragState.width, 0);
+  const maxY = Math.max(homeWidgetGrid.clientHeight + 260 - homeWidgetDragState.height, 0);
+  const x = snapHomeWidgetValue(clamp(event.clientX - gridRect.left - homeWidgetDragState.offsetX, 0, maxX));
+  const y = snapHomeWidgetValue(clamp(event.clientY - gridRect.top - homeWidgetDragState.offsetY, 0, maxY));
+
+  homeWidgetDragState.moved = true;
+  homeWidgetDragState.card.style.left = `${x}px`;
+  homeWidgetDragState.card.style.top = `${y}px`;
+  homeWidgetLayout = {
+    ...homeWidgetLayout,
+    [homeWidgetDragState.widgetId]: { x, y },
+  };
+  updateHomeWidgetCanvasHeight();
+  event.preventDefault();
+}
+
+function finishHomeWidgetDrag(event) {
+  if (!homeWidgetDragState || event.pointerId !== homeWidgetDragState.pointerId) return;
+
+  if (homeWidgetDragState.moved) saveHomeWidgetLayout();
+  cancelHomeWidgetDrag(event);
+}
+
+function cancelHomeWidgetDrag(event) {
+  if (!homeWidgetDragState) return;
+  if (event?.pointerId !== undefined && event.pointerId !== homeWidgetDragState.pointerId) return;
+
+  homeWidgetDragState.card.classList.remove("dragging");
+  if (homeWidgetDragState.card.hasPointerCapture?.(homeWidgetDragState.pointerId)) {
+    homeWidgetDragState.card.releasePointerCapture(homeWidgetDragState.pointerId);
+  }
+  homeWidgetGrid?.classList.remove("is-dragging");
+  homeWidgetDragState = null;
+}
+
+function createHomeWidget(widgetId, occurrences, completedHistory) {
+  if (widgetId === "stats") return createStatsHomeWidget(occurrences);
+  if (widgetId === "streak") return createStreakHomeWidget(completedHistory);
+  if (widgetId === "dayGrid") return createDayGridHomeWidget(occurrences);
+  if (widgetId === "week") return createWeekHomeWidget(occurrences);
+  if (widgetId === "reminders") return createRemindersHomeWidget(occurrences);
+  if (widgetId === "upcoming") return createUpcomingHomeWidget(occurrences);
+  if (widgetId === "focus") return createFocusHomeWidget(occurrences);
+  if (widgetId === "typeMix") return createTypeMixHomeWidget(occurrences);
+  if (widgetId === "xpGoal") return createXpGoalHomeWidget(completedHistory);
+  return "";
+}
+
+function createHomeWidgetShell(widgetId, label, headline, content, extraClass = "") {
+  return `
+    <article class="home-widget ${extraClass}" data-home-widget-card="${widgetId}">
+      <button class="home-widget-remove" data-remove-home-widget="${widgetId}" type="button" aria-label="Remove ${escapeHTML(label)} widget" title="Remove">x</button>
+      <span>${escapeHTML(label)}</span>
+      <strong>${headline}</strong>
+      ${content}
+    </article>
+  `;
+}
+
+function createStatsHomeWidget(occurrences) {
+  const todaysTasks = occurrences.filter((task) => task.occurrenceDate === todayISO && !task.skipped);
+  const completed = todaysTasks.filter((task) => task.done);
+  const points = completed.reduce((total, task) => total + calculatePoints(task), 0);
+  const minutes = completed.reduce((total, task) => total + calculateCompletedMinutes(task), 0);
+
+  return createHomeWidgetShell(
+    "stats",
+    "Stats",
+    `${formatPoints(points)} xp`,
+    `<p>${completed.length}/${todaysTasks.length} done &middot; ${formatMinutesAsHours(minutes)}</p>`,
+  );
+}
+
+function createStreakHomeWidget(completedHistory) {
+  const streakDays = getTopStreakDays(completedHistory);
+  const todayMinutes = getCompletedMinutesForDate(completedHistory, todayISO);
+  const remaining = Math.max(STREAK_MINUTES_TO_KEEP - todayMinutes, 0);
+
+  return createHomeWidgetShell(
+    "streak",
+    "Streak",
+    `${streakDays} day${streakDays === 1 ? "" : "s"}`,
+    `<p>${remaining === 0 ? "Secured today" : `${remaining}m left to secure today`}</p>`,
+  );
+}
+
+function createDayGridHomeWidget(occurrences) {
+  const dayTasks = occurrences
+    .filter((task) => task.occurrenceDate === todayISO && !task.skipped)
+    .sort((first, second) => timeToMinutes(first.time) - timeToMinutes(second.time))
+    .slice(0, 7);
+  const bounds = getMiniDayGridBounds(dayTasks);
+  const range = Math.max(bounds.end - bounds.start, 60);
+  const labels = [bounds.start, Math.round((bounds.start + bounds.end) / 2), bounds.end]
+    .map((minute) => `<span>${formatTimeFromMinutes(minute)}</span>`)
+    .join("");
+  const lines = [0, 25, 50, 75, 100]
+    .map((position) => `<i class="mini-grid-line" style="top: ${position}%"></i>`)
+    .join("");
+  const tasksMarkup = dayTasks.length > 0
+    ? dayTasks.map((task) => createMiniGridTask(task, bounds, range)).join("")
+    : '<p class="mini-grid-empty">Nothing planned</p>';
+
+  return createHomeWidgetShell(
+    "dayGrid",
+    "Today grid",
+    "Compact schedule",
+    `
+      <div class="mini-day-grid">
+        <div class="mini-time-column">${labels}</div>
+        <div class="mini-grid-board">
+          ${lines}
+          ${tasksMarkup}
+        </div>
+      </div>
+    `,
+    "home-widget-wide home-widget-grid-card",
+  );
+}
+
+function getMiniDayGridBounds(dayTasks) {
+  if (dayTasks.length === 0) return { start: 8 * 60, end: 20 * 60 };
+
+  const taskStarts = dayTasks.map((task) => timeToMinutes(task.time));
+  const taskEnds = dayTasks.map((task) => timeToMinutes(task.time) + getVisualTaskDuration(task));
+  const start = clamp(Math.floor((Math.min(...taskStarts) - 30) / 60) * 60, 0, 22 * 60);
+  const end = clamp(Math.ceil((Math.max(...taskEnds) + 30) / 60) * 60, start + 2 * 60, 24 * 60);
+  return { start, end };
+}
+
+function createMiniGridTask(task, bounds, range) {
+  const start = timeToMinutes(task.time);
+  const duration = getVisualTaskDuration(task);
+  const top = clamp(((start - bounds.start) / range) * 100, 0, 96);
+  const height = clamp((duration / range) * 100, 12, 72);
+  const typeStyle = getTaskTypeStyle(task.type);
+  const classes = [
+    "mini-grid-task",
+    task.done ? "done" : "",
+    isReminderItem(task) ? "reminder" : "",
+  ].filter(Boolean).join(" ");
+
+  return `
+    <div class="${classes}" style="--mini-top: ${top}%; --mini-height: ${height}%; --type-color: ${typeStyle.color}; --type-bg: ${typeStyle.bg};">
+      <span>${formatTimeFromMinutes(start)}</span>
+      <strong>${escapeHTML(task.title)}</strong>
+    </div>
+  `;
+}
+
+function createWeekHomeWidget(occurrences) {
+  const weekDates = getCurrentWeekDates();
+  const bars = weekDates
+    .map((date) => {
+      const dayTasks = occurrences.filter((task) => task.occurrenceDate === date && !task.skipped);
+      const doneCount = dayTasks.filter((task) => task.done).length;
+      const percent = dayTasks.length > 0 ? Math.round((doneCount / dayTasks.length) * 100) : 0;
+      return `
+        <span class="home-week-day" title="${escapeHTML(formatDateHeading(date))}: ${doneCount}/${dayTasks.length}">
+          <i style="height: ${Math.max(percent, dayTasks.length ? 12 : 4)}%"></i>
+          <small>${DAY_NAMES[parseISODate(date).getDay()]}</small>
+        </span>
+      `;
+    })
+    .join("");
+
+  return createHomeWidgetShell(
+    "week",
+    "Week",
+    "Progress by day",
+    `<div class="home-week-bars">${bars}</div>`,
+    "home-widget-wide",
+  );
+}
+
+function createRemindersHomeWidget(occurrences) {
+  const reminders = getUpcomingOccurrences(occurrences)
+    .filter(isReminderItem)
+    .slice(0, 3);
+  const rows = reminders.length > 0
+    ? reminders.map((task) => `<li><span>${formatDateHeading(task.occurrenceDate)}</span>${formatTimeFromMinutes(timeToMinutes(task.time))} - ${escapeHTML(task.title)}</li>`).join("")
+    : "<li>No reminders coming up</li>";
+
+  return createHomeWidgetShell(
+    "reminders",
+    "Reminders",
+    `${reminders.length} next`,
+    `<ul class="home-widget-list">${rows}</ul>`,
+  );
+}
+
+function createUpcomingHomeWidget(occurrences) {
+  const upcoming = getUpcomingOccurrences(occurrences).slice(0, 3);
+  const rows = upcoming.length > 0
+    ? upcoming.map((task) => `<li><span>${formatDateHeading(task.occurrenceDate)}</span>${formatTimeFromMinutes(timeToMinutes(task.time))} - ${escapeHTML(task.title)}</li>`).join("")
+    : "<li>No upcoming tasks</li>";
+
+  return createHomeWidgetShell(
+    "upcoming",
+    "Upcoming",
+    `${upcoming.length} next`,
+    `<ul class="home-widget-list">${rows}</ul>`,
+  );
+}
+
+function createFocusHomeWidget(occurrences) {
+  const focusTask = getUpcomingOccurrences(occurrences)
+    .filter((task) => !isReminderItem(task))
+    .sort((first, second) => getVisualTaskDuration(second) - getVisualTaskDuration(first))
+    [0];
+
+  if (!focusTask) {
+    return createHomeWidgetShell("focus", "Focus", "No focus block", "<p>Add a longer task when you are ready.</p>");
+  }
+
+  return createHomeWidgetShell(
+    "focus",
+    "Focus",
+    escapeHTML(focusTask.title),
+    `<p>${formatDateHeading(focusTask.occurrenceDate)} &middot; ${formatTimeRange(focusTask)} &middot; ${escapeHTML(focusTask.type)}</p>`,
+  );
+}
+
+function createTypeMixHomeWidget(occurrences) {
+  const weekDates = new Set(getCurrentWeekDates());
+  const typeStats = new Map();
+  occurrences
+    .filter((task) => weekDates.has(task.occurrenceDate) && !task.skipped)
+    .forEach((task) => {
+      const stats = typeStats.get(task.type) ?? { type: task.type, count: 0 };
+      stats.count += 1;
+      typeStats.set(task.type, stats);
+    });
+  const topTypes = [...typeStats.values()].sort((first, second) => second.count - first.count).slice(0, 3);
+  const rows = topTypes.length > 0
+    ? topTypes.map((type) => {
+      const typeStyle = getTaskTypeStyle(type.type);
+      return `<li style="--type-color: ${typeStyle.color}; --type-bg: ${typeStyle.bg};"><span class="home-type-dot"></span>${escapeHTML(type.type)} <small>${type.count}</small></li>`;
+    }).join("")
+    : "<li>No task types this week</li>";
+
+  return createHomeWidgetShell(
+    "typeMix",
+    "Types",
+    "This week",
+    `<ul class="home-widget-list home-type-list">${rows}</ul>`,
+  );
+}
+
+function createXpGoalHomeWidget(completedHistory) {
+  const weekDates = new Set(getCurrentWeekDates());
+  const points = completedHistory
+    .filter((task) => weekDates.has(task.occurrenceDate))
+    .reduce((total, task) => total + calculatePoints(task), 0);
+  const goal = weeklyGoals.points ?? 0;
+  const goalText = goal > 0 ? `Goal: improve weekly xp by ${goal}%` : "No weekly xp goal set";
+
+  return createHomeWidgetShell(
+    "xpGoal",
+    "xp goal",
+    `${formatPoints(points)} xp`,
+    `<p>${goalText}</p>`,
+  );
+}
+
+function getUpcomingOccurrences(occurrences) {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  return occurrences
+    .filter((task) => {
+      if (task.done || task.skipped) return false;
+      if (task.occurrenceDate > todayISO) return true;
+      return task.occurrenceDate === todayISO && timeToMinutes(task.time) >= currentMinutes;
+    })
+    .sort((first, second) =>
+      first.occurrenceDate.localeCompare(second.occurrenceDate)
+      || timeToMinutes(first.time) - timeToMinutes(second.time)
+    );
+}
+
+function setTaskFormCollapsed(isCollapsed) {
   taskForm.classList.toggle("collapsed", isCollapsed);
   if (taskFormToggle) {
-    taskFormToggle.hidden = !canCollapse;
-    taskFormToggle.setAttribute("aria-hidden", String(!canCollapse));
     taskFormToggle.setAttribute("aria-expanded", String(!isCollapsed));
-    taskFormToggle.textContent = isCollapsed ? "Expand" : "Collapse";
+    taskFormToggle.setAttribute("aria-label", isCollapsed ? "Expand add task" : "Collapse add task");
+    taskFormToggle.title = isCollapsed ? "Expand" : "Collapse";
+    taskFormToggle.querySelector("span").textContent = isCollapsed ? "v" : "^";
   }
+  localStorage.setItem(TASK_FORM_COLLAPSED_STORAGE_KEY, String(isCollapsed));
+}
+
+function toggleItemKindFields() {
+  const isReminder = taskItemKindInput.value === "reminder";
+  taskDurationField.classList.toggle("hidden", isReminder);
+  taskDurationInput.toggleAttribute("required", !isReminder);
+  taskTimeLabel.textContent = isReminder ? "Set time" : "Estimated start";
+}
+
+function toggleEditItemKindFields() {
+  const isReminder = editItemKindInput.value === "reminder";
+  editTaskDurationField.classList.toggle("hidden", isReminder);
+  editTaskDurationInput.toggleAttribute("required", !isReminder);
+  editTaskTimeLabel.textContent = isReminder ? "Set time" : "Estimated start";
 }
 
 function refreshTopStreakStatus() {
@@ -1004,6 +1599,7 @@ function finishActiveTask(taskId, occurrenceDate) {
   const actualMinutes = calculateTimerElapsedMinutes(activeTimer);
 
   tasks = tasks.map((task) => markTaskComplete(task, taskId, occurrenceDate, earnedPoints, actualMinutes));
+  if (earnedPoints > 0) pendingXpAnimation = earnedPoints;
   clearActiveTimer();
   maybeShowStreakCelebration(previousStreakDays);
   return true;
@@ -1328,7 +1924,7 @@ function activateGridTaskMove() {
   cancelPendingGridEdit();
   const occurrence = createOccurrence(sourceTask, gridMoveState.occurrenceDate);
   gridMoveState.active = true;
-  gridMoveState.duration = Number(occurrence.duration);
+  gridMoveState.duration = getVisualTaskDuration(occurrence);
   refreshScheduleGridForMove();
   gridMoveState.sourceElement?.classList.add("grid-task-moving");
   scheduleGrid.classList.add("grid-moving");
@@ -1657,17 +2253,19 @@ function openEditTask(taskId, occurrenceDate) {
   if (!task) return;
 
   const occurrence = createOccurrence(task, occurrenceDate);
+  editItemKindInput.value = getItemKind(occurrence);
   editTaskIdInput.value = taskId;
   editOccurrenceDateInput.value = occurrenceDate;
   editTaskNameInput.value = occurrence.title;
   editTaskDateInput.value = occurrence.occurrenceDate;
   editTaskTimeInput.value = occurrence.time;
-  editTaskDurationInput.value = String(occurrence.duration);
+  editTaskDurationInput.value = String(getTaskDurationForForm(occurrence));
   editTaskTypeInput.value = occurrence.type;
   editTaskPriorityInput.value = normalizePriority(occurrence.priority);
   editTaskNotesInput.value = occurrence.notes ?? "";
   editTaskRepeatsInput.checked = Boolean(task.repeats);
   setEditRepeatDays(task.repeats ? task.repeatDays : []);
+  toggleEditItemKindFields();
 
   editTaskOverlay.classList.remove("hidden");
   editTaskOverlay.setAttribute("aria-hidden", "false");
@@ -1688,8 +2286,9 @@ function saveEditedTask(event) {
   const title = editTaskNameInput.value.trim();
   const date = editTaskDateInput.value;
   const time = editTaskTimeInput.value;
+  const itemKind = normalizeItemKind(editItemKindInput.value);
   const type = normalizeTaskTypeName(editTaskTypeInput.value);
-  const duration = Number(editTaskDurationInput.value);
+  const duration = itemKind === "reminder" ? 0 : Number(editTaskDurationInput.value);
   const repeats = editTaskRepeatsInput.checked;
   const repeatDays = repeats ? getEditRepeatDays() : [];
   const nextRepeatDays = repeats && repeatDays.length === 0 ? [weekdayForISODate(date)] : repeatDays;
@@ -1701,6 +2300,7 @@ function saveEditedTask(event) {
 
     return {
       ...task,
+      itemKind,
       title,
       date,
       time,
@@ -1720,11 +2320,15 @@ function saveEditedTask(event) {
   });
 
   if (activeTimer?.taskId === taskId && activeTimer?.occurrenceDate === occurrenceDate) {
-    activeTimer = {
-      ...activeTimer,
-      duration,
-    };
-    saveActiveTimer();
+    if (itemKind === "reminder") {
+      clearActiveTimer();
+    } else {
+      activeTimer = {
+        ...activeTimer,
+        duration,
+      };
+      saveActiveTimer();
+    }
   }
 
   saveCustomTaskType(type);
@@ -1789,6 +2393,7 @@ function createMissedTaskCard(task) {
 }
 
 function createTaskCard(task) {
+  const isReminder = isReminderItem(task);
   const date = new Date(`${task.occurrenceDate}T${task.time}`);
   const dayLabel = date.toLocaleDateString(undefined, {
     weekday: "short",
@@ -1805,7 +2410,7 @@ function createTaskCard(task) {
   const streakChip = createStreakChip(task.type);
   const typeStyle = createTypeStyleAttribute(task.type);
   const isTimerActive = isActiveTimerFor(task);
-  const canStartTimer = !task.done && (!activeTimer || isTimerActive);
+  const canStartTimer = !isReminder && !task.done && (!activeTimer || isTimerActive);
   const timerPanel = isTimerActive
     ? `
       <div class="task-timer" data-timer-task>
@@ -1816,7 +2421,9 @@ function createTaskCard(task) {
     : "";
   const timerButton = task.done
     ? ""
-    : isTimerActive
+    : isReminder
+      ? `<button class="icon-button start" type="button" data-action="complete-reminder" title="Mark reminder done" aria-label="Mark reminder done">Done</button>`
+      : isTimerActive
       ? `<button class="icon-button finish" type="button" data-action="finish" title="Finish now and earn xp for elapsed time" aria-label="Finish task" data-active-finish>Finish</button>`
       : `<button class="icon-button start" type="button" data-action="start" title="Start task" aria-label="Start task" ${canStartTimer ? "" : "disabled"}>Start</button>`;
   const undoButton = task.done
@@ -1831,14 +2438,14 @@ function createTaskCard(task) {
     <article class="task-card ${task.done ? "done" : ""}" data-task-id="${task.id}" data-occurrence-date="${task.occurrenceDate}" ${typeStyle}>
       <div class="time-block">
         <strong>${timeLabel}</strong>
-        <span>Estimate &middot; ${dayLabel}</span>
+        <span>${isReminder ? "Set time" : "Estimate"} &middot; ${dayLabel}</span>
       </div>
       <div>
         <div class="task-title">${escapeHTML(task.title)}</div>
         ${notes}
         ${timerPanel}
         <div class="task-meta">
-          <span class="chip">${task.duration} min</span>
+          ${isReminder ? '<span class="chip">Reminder</span>' : `<span class="chip">${task.duration} min</span>`}
           <span class="chip type-chip">${escapeHTML(task.type)}</span>
           ${priorityChip}
           ${streakChip}
@@ -1857,6 +2464,7 @@ function createTaskCard(task) {
 }
 
 function createCompletedTaskCard(task) {
+  const isReminder = isReminderItem(task);
   const date = new Date(`${task.occurrenceDate}T${task.time}`);
   const dayLabel = date.toLocaleDateString(undefined, {
     weekday: "short",
@@ -1879,20 +2487,20 @@ function createCompletedTaskCard(task) {
     <article class="task-card done" ${typeStyle}>
       <div class="time-block">
         <strong>${timeLabel}</strong>
-        <span>Estimate &middot; ${dayLabel}</span>
+        <span>${isReminder ? "Set time" : "Estimate"} &middot; ${dayLabel}</span>
       </div>
       <div>
         <div class="task-title">${escapeHTML(task.title)}</div>
         ${notes}
         <div class="task-meta">
-          <span class="chip">${formatMinutesAsHours(completedMinutes)} tracked</span>
+          <span class="chip">${isReminder ? "Reminder done" : `${formatMinutesAsHours(completedMinutes)} tracked`}</span>
           <span class="chip type-chip">${escapeHTML(task.type)}</span>
           ${priorityChip}
           ${streakChip}
           <span class="chip">${escapeHTML(repeatLabel)}</span>
         </div>
       </div>
-      <div class="points-chip">+${formatPoints(points)} xp</div>
+      <div class="points-chip">${isReminder ? "Reminder" : `+${formatPoints(points)} xp`}</div>
     </article>
   `;
 }
@@ -2132,6 +2740,7 @@ function assignTimelineLanes(dayTasks) {
 
 function createTimelineTask(item, bounds, extraClass = "") {
   const { task, range, lane, laneCount } = item;
+  const isReminder = isReminderItem(task);
   const top = getTimelineMinutePercent(range.start, bounds);
   const height = getTimelineRangeHeightPercent(range.start, range.end, bounds);
   const laneWidth = 100 / laneCount;
@@ -2141,14 +2750,14 @@ function createTimelineTask(item, bounds, extraClass = "") {
 
   return `
     <article
-      class="timeline-task ${extraClass} duration-${task.duration} ${task.done ? "done" : ""}"
+      class="timeline-task ${extraClass} ${isReminder ? "reminder-task duration-15" : `duration-${task.duration}`} ${task.done ? "done" : ""}"
       data-task-id="${task.id}"
       data-occurrence-date="${task.occurrenceDate}"
       style="--task-top: ${top.toFixed(2)}%; --task-height: ${height.toFixed(2)}%; --task-left: ${laneLeft.toFixed(2)}%; --task-width: ${laneWidth.toFixed(2)}%; --type-color: ${typeStyle.color}; --type-bg: ${typeStyle.bg};"
     >
       <span class="timeline-time">${formatTimeRange(task)}</span>
       <strong class="timeline-title">${escapeHTML(task.title)}</strong>
-      <small class="timeline-meta">${escapeHTML(task.type)}${priorityLabel} &middot; ${task.duration} min</small>
+      <small class="timeline-meta">${escapeHTML(task.type)}${priorityLabel}${isReminder ? " &middot; Reminder" : ` &middot; ${task.duration} min`}</small>
     </article>
   `;
 }
@@ -2338,7 +2947,7 @@ function getTaskTimeRange(task) {
   const start = timeToMinutes(task.time);
   return {
     start,
-    end: start + Number(task.duration),
+    end: start + getVisualTaskDuration(task),
   };
 }
 
@@ -2349,7 +2958,9 @@ function timeToMinutes(time) {
 
 function formatTimeRange(task) {
   const range = getTaskTimeRange(task);
-  return `${formatTimeFromMinutes(range.start)}-${formatTimeFromMinutes(range.end)}`;
+  return isReminderItem(task)
+    ? formatTimeFromMinutes(range.start)
+    : `${formatTimeFromMinutes(range.start)}-${formatTimeFromMinutes(range.end)}`;
 }
 
 function formatTimeFromMinutes(minutes) {
@@ -2486,8 +3097,9 @@ function applySelectedTaskTemplate() {
   const template = findTaskTemplate(taskTemplateSelect.value);
   if (!template) return;
 
+  taskItemKindInput.value = normalizeItemKind(template.itemKind);
   taskTitleInput.value = template.title;
-  taskDurationInput.value = String(template.duration);
+  taskDurationInput.value = String(getTaskDurationForForm(template));
   taskNotesInput.value = template.notes ?? "";
   taskPriorityInput.value = normalizePriority(template.priority);
   taskRepeatsInput.checked = Boolean(template.repeats);
@@ -2498,6 +3110,7 @@ function applySelectedTaskTemplate() {
   }
 
   renderTaskTypeOptions(template.type);
+  toggleItemKindFields();
 }
 
 function saveCurrentTaskTemplate() {
@@ -2505,6 +3118,7 @@ function saveCurrentTaskTemplate() {
   const type = getSubmittedTaskType(formData);
   const template = normalizeTaskTemplate({
     id: crypto.randomUUID(),
+    itemKind: formData.get("itemKind"),
     title: formData.get("title"),
     duration: formData.get("duration"),
     type,
@@ -3433,13 +4047,15 @@ function moveMissedTask(taskId, occurrenceDate, targetDate) {
 
 function createSingleTaskFromOccurrence(task, targetDate, targetTime = task.time, keepCompletion = false) {
   const isDone = keepCompletion && Boolean(task.done);
+  const itemKind = getItemKind(task);
 
   return {
     id: crypto.randomUUID(),
+    itemKind,
     title: task.title,
     date: targetDate,
     time: targetTime,
-    duration: Number(task.duration),
+    duration: itemKind === "reminder" ? 0 : Number(task.duration),
     type: task.type,
     priority: normalizePriority(task.priority),
     notes: task.notes ?? "",
@@ -3503,7 +4119,7 @@ function syncActiveTimerWithTasks() {
   }
 
   const occurrence = createOccurrence(matchingTask, activeTimer.occurrenceDate);
-  if (occurrence.done || occurrence.skipped) {
+  if (occurrence.done || occurrence.skipped || isReminderItem(occurrence)) {
     clearActiveTimer();
   }
 }
@@ -3646,6 +4262,7 @@ function formatTimerRemaining(timer) {
 
 function resetForm() {
   taskForm.reset();
+  taskItemKindInput.value = "task";
   taskDateInput.value = todayISO;
   taskDurationInput.value = "30";
   taskTypeInput.value = BUILT_IN_TASK_TYPES[0];
@@ -3653,6 +4270,7 @@ function resetForm() {
   taskTemplateSelect.value = "";
   customTaskTypeInput.value = "";
   toggleCustomTypeInput();
+  toggleItemKindFields();
 }
 
 function getSelectedRepeatDays() {
@@ -3741,7 +4359,33 @@ function normalizePriority(value) {
   return PRIORITY_LEVELS.includes(priority) ? priority : "Medium";
 }
 
+function normalizeItemKind(value) {
+  return value === "reminder" ? "reminder" : "task";
+}
+
+function getItemKind(task) {
+  return normalizeItemKind(task?.itemKind);
+}
+
+function isReminderItem(task) {
+  return getItemKind(task) === "reminder";
+}
+
+function getTaskDurationForForm(task) {
+  return isReminderItem(task) ? 30 : clamp(Number(task.duration) || 30, 15, 300);
+}
+
+function getVisualTaskDuration(task) {
+  return isReminderItem(task) ? GRID_MOVE_SNAP_MINUTES : Number(task.duration) || GRID_MOVE_SNAP_MINUTES;
+}
+
+function getScheduleProgressWeight(task) {
+  return isReminderItem(task) ? GRID_MOVE_SNAP_MINUTES : Number(task.duration) || 0;
+}
+
 function calculatePoints(task) {
+  if (isReminderItem(task)) return 0;
+
   if (task.done && Number.isFinite(Number(task.earnedPoints))) {
     return Math.round(Number(task.earnedPoints));
   }
@@ -3750,6 +4394,8 @@ function calculatePoints(task) {
 }
 
 function calculateCompletedMinutes(task) {
+  if (isReminderItem(task)) return 0;
+
   if (task.done && Number.isFinite(Number(task.actualMinutes))) {
     return Math.round(Number(task.actualMinutes));
   }
@@ -3758,10 +4404,12 @@ function calculateCompletedMinutes(task) {
 }
 
 function normalizeEarnedPoints(value, task) {
+  if (isReminderItem(task)) return 0;
   return Number.isFinite(Number(value)) ? Math.max(Math.round(Number(value)), 0) : calculatePoints(task);
 }
 
 function normalizeActualMinutes(value, task) {
+  if (isReminderItem(task)) return 0;
   const fallback = Number(task.duration) || 0;
   return Number.isFinite(Number(value)) ? Math.round(clamp(Number(value), 0, fallback)) : fallback;
 }
@@ -4613,6 +5261,8 @@ function createProfileCloudData(profileId) {
     customTaskTypes: readProfileJSON(TYPE_STORAGE_KEY, profileId, []),
     weeklyGoals: readProfileJSON(GOAL_STORAGE_KEY, profileId, {}),
     taskTemplates: readProfileJSON(TEMPLATE_STORAGE_KEY, profileId, []),
+    homeWidgets: readProfileJSON(HOME_WIDGETS_STORAGE_KEY, profileId, []),
+    homeWidgetLayout: readProfileJSON(HOME_WIDGET_LAYOUT_STORAGE_KEY, profileId, {}),
     activeTimer: readProfileJSON(TIMER_STORAGE_KEY, profileId, null),
     weeklyReportSeenKey: localStorage.getItem(getProfileStorageKey(WEEKLY_REPORT_SEEN_STORAGE_KEY, profileId)) ?? "",
     dismissedOverlapSignature: localStorage.getItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY, profileId)) ?? "",
@@ -4643,15 +5293,19 @@ function applyCloudSnapshot(snapshot) {
     tasks = loadTasks();
     customTaskTypes = mergeCustomTaskTypes(loadCustomTaskTypes(), tasks.map((task) => task.type));
     weeklyGoals = loadWeeklyGoals();
+    homeWidgets = loadHomeWidgets();
+    homeWidgetLayout = loadHomeWidgetLayout();
     taskTemplates = loadTaskTemplates();
     dismissedOverlapSignature = localStorage.getItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY)) ?? "";
     missedTasksCollapsed = localStorage.getItem(getProfileStorageKey(MISSED_COLLAPSE_STORAGE_KEY)) === "true";
     activeTimer = loadActiveTimer();
+    displayedTodayXp = null;
 
     saveCustomTaskTypes();
     renderProfileControls();
     renderTaskTypeOptions();
     renderTaskTemplateOptions();
+    renderHomeWidgetControls();
     applyWeeklyGoalsToControls();
     applyFeatureSettingsToControls();
     applyTheme(currentTheme);
@@ -4682,6 +5336,18 @@ function writeProfileCloudData(profileId, data) {
     Array.isArray(data.taskTemplates)
       ? data.taskTemplates.map(normalizeTaskTemplate).filter((template) => template.title && template.type)
       : [],
+  );
+  writeProfileJSON(
+    HOME_WIDGETS_STORAGE_KEY,
+    profileId,
+    Object.prototype.hasOwnProperty.call(data, "homeWidgets")
+      ? normalizeHomeWidgets(data.homeWidgets)
+      : ["stats", "streak", "dayGrid"],
+  );
+  writeProfileJSON(
+    HOME_WIDGET_LAYOUT_STORAGE_KEY,
+    profileId,
+    normalizeHomeWidgetLayout(data.homeWidgetLayout ?? {}),
   );
 
   if (data.activeTimer) {
@@ -4866,14 +5532,18 @@ function switchProfile(profileId) {
   tasks = loadTasks();
   customTaskTypes = mergeCustomTaskTypes(loadCustomTaskTypes(), tasks.map((task) => task.type));
   weeklyGoals = loadWeeklyGoals();
+  homeWidgets = loadHomeWidgets();
+  homeWidgetLayout = loadHomeWidgetLayout();
   taskTemplates = loadTaskTemplates();
   dismissedOverlapSignature = localStorage.getItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY)) ?? "";
   missedTasksCollapsed = localStorage.getItem(getProfileStorageKey(MISSED_COLLAPSE_STORAGE_KEY)) === "true";
   activeTimer = loadActiveTimer();
+  displayedTodayXp = null;
   saveCustomTaskTypes();
   renderProfileControls();
   renderTaskTypeOptions();
   renderTaskTemplateOptions();
+  renderHomeWidgetControls();
   applyWeeklyGoalsToControls();
   resetForm();
   render();
@@ -5066,6 +5736,16 @@ function saveTaskTemplates() {
   queueCloudSave();
 }
 
+function saveHomeWidgets() {
+  localStorage.setItem(getProfileStorageKey(HOME_WIDGETS_STORAGE_KEY), JSON.stringify(homeWidgets));
+  queueCloudSave();
+}
+
+function saveHomeWidgetLayout() {
+  localStorage.setItem(getProfileStorageKey(HOME_WIDGET_LAYOUT_STORAGE_KEY), JSON.stringify(homeWidgetLayout));
+  queueCloudSave();
+}
+
 function loadTasks() {
   try {
     return normalizeTasks(JSON.parse(localStorage.getItem(getProfileStorageKey(STORAGE_KEY))) ?? []);
@@ -5107,6 +5787,52 @@ function loadTaskTemplates() {
   }
 }
 
+function loadHomeWidgets() {
+  try {
+    const savedValue = localStorage.getItem(getProfileStorageKey(HOME_WIDGETS_STORAGE_KEY));
+    return savedValue === null ? ["stats", "streak", "dayGrid"] : normalizeHomeWidgets(JSON.parse(savedValue));
+  } catch {
+    return ["stats", "streak", "dayGrid"];
+  }
+}
+
+function normalizeHomeWidgets(value) {
+  const validIds = new Set(HOME_WIDGET_DEFINITIONS.map((widget) => widget.id));
+  const widgets = Array.isArray(value) ? value.filter((widgetId) => validIds.has(widgetId)) : [];
+  return [...new Set(widgets)];
+}
+
+function loadHomeWidgetLayout() {
+  try {
+    return normalizeHomeWidgetLayout(JSON.parse(localStorage.getItem(getProfileStorageKey(HOME_WIDGET_LAYOUT_STORAGE_KEY))) ?? {});
+  } catch {
+    return {};
+  }
+}
+
+function normalizeHomeWidgetLayout(value) {
+  const validIds = new Set(HOME_WIDGET_DEFINITIONS.map((widget) => widget.id));
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([widgetId, position]) =>
+        validIds.has(widgetId)
+        && position
+        && typeof position === "object"
+        && Number.isFinite(Number(position.x))
+        && Number.isFinite(Number(position.y))
+      )
+      .map(([widgetId, position]) => [
+        widgetId,
+        {
+          x: snapHomeWidgetValue(clamp(Number(position.x), 0, 2400)),
+          y: snapHomeWidgetValue(clamp(Number(position.y), 0, 2400)),
+        },
+      ]),
+  );
+}
+
 function normalizeFeatureSettings(savedSettings) {
   return {
     ...Object.fromEntries(
@@ -5140,6 +5866,8 @@ function applyWeeklyGoalsToControls() {
 function normalizeTasks(savedTasks) {
   return savedTasks.map((task) => ({
     ...task,
+    itemKind: normalizeItemKind(task.itemKind),
+    duration: normalizeItemKind(task.itemKind) === "reminder" ? 0 : clamp(Number(task.duration) || 30, 15, 300),
     priority: normalizePriority(task.priority),
     repeats: Boolean(task.repeats),
     repeatDays: Array.isArray(task.repeatDays) ? task.repeatDays.map(Number) : [],
@@ -5164,10 +5892,12 @@ function normalizeNumberMap(value) {
 }
 
 function normalizeTaskTemplate(template) {
+  const itemKind = normalizeItemKind(template.itemKind);
   return {
     id: template.id || crypto.randomUUID(),
+    itemKind,
     title: String(template.title ?? "").trim().replace(/\s+/g, " ").slice(0, 60),
-    duration: clamp(Number(template.duration) || 30, 15, 300),
+    duration: itemKind === "reminder" ? 0 : clamp(Number(template.duration) || 30, 15, 300),
     type: normalizeTaskTypeName(template.type),
     notes: String(template.notes ?? "").trim().slice(0, 400),
     priority: normalizePriority(template.priority),

@@ -259,6 +259,14 @@
             </div>
 
             <label>
+              Kind
+              <select id="editItemKind" name="itemKind">
+                <option value="task">Task</option>
+                <option value="reminder">Reminder</option>
+              </select>
+            </label>
+
+            <label>
               Task name
               <input id="editTaskName" name="title" type="text" required />
             </label>
@@ -268,14 +276,14 @@
                 Date
                 <input id="editTaskDate" name="date" type="date" required />
               </label>
-              <label>
-                Estimated start
+              <label id="editTaskTimeLabel">
+                <span>Estimated start</span>
                 <input id="editTaskTime" name="time" type="time" required />
               </label>
             </div>
 
             <div class="field-row field-row-three">
-              <label>
+              <label id="editTaskDurationField">
                 Duration
                 <select id="editTaskDuration" name="duration">
                   <option value="15">15 min</option>
@@ -335,6 +343,13 @@
       </div>
 
       <section class="tab-panel active" id="homePanel" aria-labelledby="Home">
+        <div class="home-widget-actions">
+          <button class="home-widget-add-button" id="homeWidgetAddButton" type="button" aria-expanded="false" aria-controls="homeWidgetPicker" aria-label="Add widget">+</button>
+          <div class="home-widget-picker hidden" id="homeWidgetPicker">
+            <span>Add widgets</span>
+            <div class="home-widget-controls" id="homeWidgetControls" aria-label="Home widget controls"></div>
+          </div>
+        </div>
         <div class="panel-grid">
           <form class="task-form" id="taskForm">
             <div class="form-header task-form-header">
@@ -342,10 +357,20 @@
                 <h2>Add a task</h2>
                 <p>Plan what needs doing and when it should happen.</p>
               </div>
-              <button class="secondary-button compact-button task-form-toggle" id="taskFormToggle" type="button" aria-expanded="true" aria-controls="taskFormBody">Collapse</button>
+              <button class="task-form-toggle" id="taskFormToggle" type="button" aria-expanded="true" aria-controls="taskFormBody" title="Collapse" aria-label="Collapse add task">
+                <span aria-hidden="true">^</span>
+              </button>
             </div>
 
             <div class="task-form-body" id="taskFormBody">
+              <label>
+                Kind
+                <select id="taskItemKind" name="itemKind">
+                  <option value="task">Task</option>
+                  <option value="reminder">Reminder</option>
+                </select>
+              </label>
+
               <label>
                 Task name
                 <input id="taskTitle" name="title" type="text" placeholder="Study, workout, meeting..." required />
@@ -364,14 +389,14 @@
                   Date
                   <input id="taskDate" name="date" type="date" required />
                 </label>
-                <label>
-                  Estimated start
+                <label id="taskTimeLabel">
+                  <span>Estimated start</span>
                   <input id="taskTime" name="time" type="time" required />
                 </label>
               </div>
 
               <div class="field-row field-row-three">
-                <label>
+                <label id="taskDurationField">
                   Duration
                   <select id="taskDuration" name="duration">
                     <option value="15">15 min</option>
@@ -455,6 +480,10 @@
             <div class="today-dayparts" id="todayDayparts" aria-label="Today's time periods"></div>
           </aside>
         </div>
+
+        <section class="home-widgets-card" aria-label="Widgets">
+          <div class="home-widget-grid" id="homeWidgetGrid"></div>
+        </section>
       </section>
 
       <section class="tab-panel" id="schedulePanel" aria-labelledby="Schedule">
