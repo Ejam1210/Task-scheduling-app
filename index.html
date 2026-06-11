@@ -357,13 +357,6 @@
       </div>
 
       <section class="tab-panel active" id="homePanel" aria-labelledby="Home">
-        <div class="home-widget-actions">
-          <button class="home-widget-add-button" id="homeWidgetAddButton" type="button" aria-expanded="false" aria-controls="homeWidgetPicker" aria-label="Add widget">+</button>
-          <div class="home-widget-picker hidden" id="homeWidgetPicker">
-            <span>Add widgets</span>
-            <div class="home-widget-controls" id="homeWidgetControls" aria-label="Home widget controls"></div>
-          </div>
-        </div>
         <div class="panel-grid">
           <form class="task-form" id="taskForm">
             <div class="form-header task-form-header" id="taskFormHeader" role="button" tabindex="0" aria-expanded="true" aria-controls="taskFormBody">
@@ -502,12 +495,58 @@
                 <p id="todaySummary">No tasks scheduled for today yet.</p>
               </div>
             </div>
+            <button class="primary-button home-add-task-button" id="homeAddTaskButton" type="button">Add a task</button>
             <div class="today-next-task" id="todayNextTask" aria-live="polite"></div>
             <div class="today-dayparts" id="todayDayparts" aria-label="Today's time periods"></div>
           </aside>
 
-          <section class="home-widgets-card" aria-label="Widgets">
-            <div class="home-widget-grid" id="homeWidgetGrid"></div>
+          <section class="home-overview" aria-label="Today overview">
+            <section class="home-stats-panel" aria-label="Stats snapshot">
+              <div class="home-section-heading">
+                <div>
+                  <p class="eyebrow">Snapshot</p>
+                  <h2>Stats</h2>
+                </div>
+              </div>
+              <div class="home-stat-snapshots" id="homeStatsSnapshots"></div>
+            </section>
+
+            <section class="home-week-panel" aria-label="This week">
+              <div class="home-section-heading">
+                <div>
+                  <p class="eyebrow">Week</p>
+                  <h2>Next few days</h2>
+                </div>
+              </div>
+              <div class="home-week-strip" id="homeWeekStrip"></div>
+            </section>
+
+            <section class="home-day-grid-panel" aria-label="Today grid">
+              <div class="home-section-heading">
+                <div>
+                  <p class="eyebrow">Timeline</p>
+                  <h2>Day grid</h2>
+                </div>
+                <div class="home-grid-controls" aria-label="Home grid controls">
+                  <div class="schedule-date-controls home-grid-date-controls" aria-label="Home grid date navigation">
+                    <button id="homeGridPrevDate" type="button" aria-label="Previous date">&lt;</button>
+                    <input id="homeGridDatePicker" type="date" aria-label="Home grid date" />
+                    <button id="homeGridNextDate" type="button" aria-label="Next date">&gt;</button>
+                    <button id="homeGridTodayButton" type="button">Today</button>
+                  </div>
+                  <select id="homeGridRange" class="grid-range-select" aria-label="Home grid time range">
+                    <option value="day">Day</option>
+                    <option value="week">Week</option>
+                  </select>
+                  <div class="grid-zoom-controls home-grid-zoom-controls" aria-label="Home grid zoom controls">
+                    <button id="homeGridZoomOut" type="button" aria-label="Zoom home grid out">-</button>
+                    <span id="homeGridZoomLevel">100%</span>
+                    <button id="homeGridZoomIn" type="button" aria-label="Zoom home grid in">+</button>
+                  </div>
+                </div>
+              </div>
+              <div id="homeDayGrid"></div>
+            </section>
           </section>
         </div>
 

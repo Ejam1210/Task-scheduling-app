@@ -37,6 +37,7 @@ const GRID_COLLAPSED_GAP_MINUTES = 24;
 const GRID_MOVE_HOLD_MS = 600;
 const GRID_MOVE_CANCEL_DISTANCE = 12;
 const GRID_MOVE_SNAP_MINUTES = 15;
+const HOME_GRID_MINUTE_HEIGHT = 1.6;
 const TASK_DOUBLE_TAP_MS = 380;
 const TASK_DOUBLE_TAP_DISTANCE = 28;
 const TASK_SWIPE_ACTIVATE_DISTANCE = 12;
@@ -90,6 +91,18 @@ const todayStatusChip = document.querySelector("#todayStatusChip");
 const todayDayparts = document.querySelector("#todayDayparts");
 const todayNextTask = document.querySelector("#todayNextTask");
 const daySummary = document.querySelector(".day-summary");
+const homeAddTaskButton = document.querySelector("#homeAddTaskButton");
+const homeStatsSnapshots = document.querySelector("#homeStatsSnapshots");
+const homeWeekStrip = document.querySelector("#homeWeekStrip");
+const homeDayGrid = document.querySelector("#homeDayGrid");
+const homeGridRangeInput = document.querySelector("#homeGridRange");
+const homeGridDatePicker = document.querySelector("#homeGridDatePicker");
+const homeGridPrevDateButton = document.querySelector("#homeGridPrevDate");
+const homeGridNextDateButton = document.querySelector("#homeGridNextDate");
+const homeGridTodayButton = document.querySelector("#homeGridTodayButton");
+const homeGridZoomInButton = document.querySelector("#homeGridZoomIn");
+const homeGridZoomOutButton = document.querySelector("#homeGridZoomOut");
+const homeGridZoomLevel = document.querySelector("#homeGridZoomLevel");
 const todayLabel = document.querySelector("#todayLabel");
 const todayXpValue = document.querySelector("#todayXpValue");
 const topStreakPill = document.querySelector("#topStreakPill");
@@ -219,9 +232,14 @@ let currentTheme = localStorage.getItem(THEME_STORAGE_KEY) ?? "light";
 let currentAccentTheme = localStorage.getItem(ACCENT_STORAGE_KEY) ?? "green";
 let scheduleView = "list";
 let scheduleAnchorDate = "";
+let homeGridAnchorDate = "";
+let homeGridRange = "day";
 let scheduleGridZoom = 1;
+let homeGridZoom = 1;
 let pinchStartDistance = 0;
 let pinchStartZoom = 1;
+let homePinchStartDistance = 0;
+let homePinchStartZoom = 1;
 let currentOverlapSignature = "";
 let dismissedOverlapSignature = localStorage.getItem(getProfileStorageKey(OVERLAP_DISMISS_STORAGE_KEY)) ?? "";
 let activeTimer = loadActiveTimer();
@@ -351,8 +369,10 @@ const ACCENT_THEMES = {
 const today = new Date();
 const todayISO = toDateInputValue(today);
 scheduleAnchorDate = todayISO;
+homeGridAnchorDate = todayISO;
 taskDateInput.value = todayISO;
 scheduleDatePicker.value = scheduleAnchorDate;
+if (homeGridDatePicker) homeGridDatePicker.value = homeGridAnchorDate;
 todayLabel.textContent = today.toLocaleDateString(undefined, {
   weekday: "long",
   month: "short",
@@ -431,6 +451,21 @@ scheduleGrid.addEventListener("touchmove", handleGridTouchMove, { passive: false
 scheduleGrid.addEventListener("touchend", resetGridPinch);
 gridZoomInButton.addEventListener("click", () => setScheduleGridZoom(scheduleGridZoom + 0.15));
 gridZoomOutButton.addEventListener("click", () => setScheduleGridZoom(scheduleGridZoom - 0.15));
+homeAddTaskButton?.addEventListener("click", openScheduleTaskFormFromHome);
+homeGridRangeInput?.addEventListener("change", () => {
+  homeGridRange = homeGridRangeInput.value === "week" ? "week" : "day";
+  render();
+});
+homeGridDatePicker?.addEventListener("change", () => setHomeGridAnchorDate(homeGridDatePicker.value));
+homeGridPrevDateButton?.addEventListener("click", () => shiftHomeGridAnchorDate(-getHomeGridNavigationStep()));
+homeGridNextDateButton?.addEventListener("click", () => shiftHomeGridAnchorDate(getHomeGridNavigationStep()));
+homeGridTodayButton?.addEventListener("click", () => setHomeGridAnchorDate(todayISO));
+homeGridZoomInButton?.addEventListener("click", () => setHomeGridZoom(homeGridZoom + 0.15));
+homeGridZoomOutButton?.addEventListener("click", () => setHomeGridZoom(homeGridZoom - 0.15));
+homeDayGrid?.addEventListener("wheel", handleHomeGridZoom, { passive: false });
+homeDayGrid?.addEventListener("touchstart", handleHomeGridTouchStart, { passive: false });
+homeDayGrid?.addEventListener("touchmove", handleHomeGridTouchMove, { passive: false });
+homeDayGrid?.addEventListener("touchend", resetHomeGridPinch);
 taskItemKindInput.addEventListener("change", toggleItemKindFields);
 taskRepeatModeInput.addEventListener("change", () => {
   toggleRepeatControls();
@@ -451,6 +486,22 @@ function toggleTaskFormFromHeader() {
   taskFormCollapsedPreference = !taskFormCollapsedPreference;
   setTaskFormCollapsed(taskFormCollapsedPreference);
 }
+
+function openScheduleTaskFormFromHome() {
+  switchTab("schedule");
+  taskFormCollapsedPreference = false;
+  setTaskFormCollapsed(false);
+
+  requestAnimationFrame(() => {
+    taskForm?.scrollIntoView({ behavior: "smooth", block: "start" });
+    try {
+      taskTitleInput?.focus({ preventScroll: true });
+    } catch {
+      taskTitleInput?.focus();
+    }
+  });
+}
+
 editItemKindInput.addEventListener("change", toggleEditItemKindFields);
 editTaskRepeatsInput.addEventListener("change", () => {
   toggleEditRepeatControls();
@@ -799,7 +850,7 @@ function render() {
   updateTopXp(pointsToday);
   renderTopStreakStatus(completedHistory, getTopStreakDays(completedHistory));
   renderTodaySummary(occurrences);
-  renderHomeWidgets(occurrences, completedHistory);
+  renderHomeDashboard(occurrences, completedHistory);
   renderMissedTasks();
   renderFocusOverlay(occurrences);
   applyFeatureVisibility();
@@ -860,8 +911,9 @@ function getScheduleOccurrenceWindow() {
   const todayStart = startOfToday(today);
   const anchor = parseISODate(scheduleAnchorDate);
   const range = scheduleView === "grid" ? getGridDateRange() : { start: anchor, end: anchor };
-  const earliest = minDate(todayStart, range.start, addDays(anchor, -7));
-  const latest = maxDate(addDays(todayStart, SCHEDULE_DAYS_TO_SHOW), range.end, addDays(anchor, SCHEDULE_DAYS_TO_SHOW));
+  const homeRange = getGridDateRange({ anchorDate: homeGridAnchorDate || todayISO, range: homeGridRange });
+  const earliest = minDate(todayStart, range.start, homeRange.start, addDays(anchor, -7));
+  const latest = maxDate(addDays(todayStart, SCHEDULE_DAYS_TO_SHOW), range.end, homeRange.end, addDays(anchor, SCHEDULE_DAYS_TO_SHOW));
 
   return { start: earliest, end: latest };
 }
@@ -1125,9 +1177,9 @@ function createXpLightning(gainedXp, target) {
 
 function createTodayDayparts(todaysTasks) {
   const periods = [
-    { label: "Morning", start: 0, end: 12 * 60 },
-    { label: "Evening", start: 12 * 60, end: 18 * 60 },
-    { label: "Night", start: 18 * 60, end: 24 * 60 },
+    { label: "Morning", start: 0, end: 12 * 60, tone: "morning" },
+    { label: "Afternoon", start: 12 * 60, end: 18 * 60, tone: "afternoon" },
+    { label: "Night", start: 18 * 60, end: 24 * 60, tone: "night" },
   ];
 
   return periods
@@ -1136,26 +1188,239 @@ function createTodayDayparts(todaysTasks) {
         const start = timeToMinutes(task.time);
         return start >= period.start && start < period.end;
       });
-      const nextTask = periodTasks.find((task) => !task.done);
-      const label = nextTask
-        ? `${formatTimeFromMinutes(timeToMinutes(nextTask.time))} - ${nextTask.title}`
-        : periodTasks.length > 0
-          ? "Finished"
-          : "Clear";
-      const countLabel = nextTask
-        ? `${periodTasks.filter((task) => !task.done).length} left`
-        : periodTasks.length > 0
-          ? `${periodTasks.length} done`
-          : "No tasks";
+      const unfinishedTasks = periodTasks.filter((task) => !task.done);
+      const previewTasks = (unfinishedTasks.length ? unfinishedTasks : periodTasks).slice(0, 2);
+      const countLabel = periodTasks.length
+        ? `${periodTasks.filter((task) => task.done).length}/${periodTasks.length} done`
+        : "No tasks";
+      const taskRows = previewTasks.length
+        ? previewTasks
+            .map((task) => `
+              <span title="${escapeHTML(task.title)}">
+                <i>${formatTimeFromMinutes(timeToMinutes(task.time))}</i>
+                <b>${escapeHTML(task.title)}</b>
+              </span>
+            `)
+            .join("")
+        : "<em>Clear</em>";
 
       return `
-        <article class="today-daypart">
-          <strong>${escapeHTML(period.label)}</strong>
-          <span title="${escapeHTML(countLabel)}">${escapeHTML(label)}</span>
+        <article class="today-daypart ${period.tone}">
+          <div>
+            <strong>${escapeHTML(period.label)}</strong>
+            <small>${escapeHTML(countLabel)}</small>
+          </div>
+          <div class="today-daypart-tasks">${taskRows}</div>
         </article>
       `;
     })
     .join("");
+}
+
+function renderHomeDashboard(occurrences, completedHistory) {
+  const todaysTasks = occurrences
+    .filter((task) => task.occurrenceDate === todayISO && !task.skipped)
+    .sort((first, second) => timeToMinutes(first.time) - timeToMinutes(second.time));
+
+  if (homeStatsSnapshots) {
+    homeStatsSnapshots.innerHTML = createHomeStatsSnapshots(todaysTasks, completedHistory);
+  }
+
+  if (homeWeekStrip) {
+    homeWeekStrip.innerHTML = createHomeWeekStrip(occurrences);
+  }
+
+  if (homeDayGrid) {
+    const gridOccurrences = getGridOccurrences(occurrences, {
+      anchorDate: homeGridAnchorDate,
+      range: homeGridRange,
+    });
+    homeDayGrid.className = "schedule-grid-view home-schedule-grid active";
+    homeDayGrid.classList.toggle("compact-15", homeGridZoom <= 1.9);
+    homeDayGrid.classList.toggle("compact-30", homeGridZoom <= 1.25);
+    homeDayGrid.innerHTML = createScheduleGrid(gridOccurrences, {
+      anchorDate: homeGridAnchorDate,
+      context: "home",
+      range: homeGridRange,
+      zoom: homeGridZoom,
+    });
+    updateHomeGridControls();
+  }
+}
+
+function createHomeStatsSnapshots(todaysTasks, completedHistory) {
+  const completedToday = todaysTasks.filter((task) => task.done);
+  const pointsToday = completedToday.reduce((total, task) => total + calculatePoints(task), 0);
+  const minutesToday = completedToday.reduce((total, task) => total + calculateCompletedMinutes(task), 0);
+  const weekDates = new Set(getCurrentWeekDates());
+  const weekTasks = completedHistory.filter((task) => weekDates.has(task.occurrenceDate));
+  const weekPoints = weekTasks.reduce((total, task) => total + calculatePoints(task), 0);
+  const weekMinutes = weekTasks.reduce((total, task) => total + calculateCompletedMinutes(task), 0);
+  const remaining = Math.max(todaysTasks.length - completedToday.length, 0);
+  const completionPercent = todaysTasks.length
+    ? Math.round((completedToday.length / todaysTasks.length) * 100)
+    : 0;
+
+  return [
+    createHomeStatSnapshot("Today xp", `${formatPoints(pointsToday)} xp`, `${completionPercent}% complete`),
+    createHomeStatSnapshot("Time done", formatMinutesAsHours(minutesToday), `${remaining} left today`),
+    createHomeStatSnapshot("Week xp", `${formatPoints(weekPoints)} xp`, `${formatMinutesAsHours(weekMinutes)} tracked`),
+    createHomeStatSnapshot("Streak", `${getTopStreakDays(completedHistory)}d`, featureSettings.streaks ? "Current run" : "Turned off"),
+  ].join("");
+}
+
+function createHomeStatSnapshot(label, value, detail) {
+  return `
+    <article class="home-stat-snapshot">
+      <span>${escapeHTML(label)}</span>
+      <strong>${escapeHTML(value)}</strong>
+      <small>${escapeHTML(detail)}</small>
+    </article>
+  `;
+}
+
+function createHomeWeekStrip(occurrences) {
+  return getCurrentWeekDates()
+    .map((date) => {
+      const dayTasks = occurrences.filter((task) => task.occurrenceDate === date && !task.skipped);
+      const doneCount = dayTasks.filter((task) => task.done).length;
+      const day = parseISODate(date);
+      const letter = day.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 1);
+      const classes = [
+        "home-week-letter",
+        date === todayISO ? "today" : "",
+        dayTasks.length > 0 ? "has-tasks" : "",
+        dayTasks.length > 0 && doneCount === dayTasks.length ? "complete" : "",
+      ].filter(Boolean).join(" ");
+
+      return `
+        <span class="${classes}" title="${escapeHTML(formatDateHeading(date))}: ${doneCount}/${dayTasks.length} done">
+          <strong>${escapeHTML(letter)}</strong>
+          <small>${dayTasks.length ? `${doneCount}/${dayTasks.length}` : "-"}</small>
+        </span>
+      `;
+    })
+    .join("");
+}
+
+function createHomeDayGrid(todaysTasks) {
+  const bounds = getHomeGridBounds(todaysTasks);
+  const range = Math.max(bounds.end - bounds.start, 60);
+  const gridHeight = Math.round(range * HOME_GRID_MINUTE_HEIGHT);
+  const labels = getHomeGridLabelMinutes(bounds)
+    .map((minute) => {
+      const top = clamp(((minute - bounds.start) / range) * 100, 0, 100);
+      return `<span style="top: ${top}%">${formatTimeFromMinutes(minute)}</span>`;
+    })
+    .join("");
+  const lines = getHomeGridLabelMinutes(bounds)
+    .map((minute) => {
+      const top = clamp(((minute - bounds.start) / range) * 100, 0, 100);
+      return `<i class="home-grid-line" style="top: ${top}%"></i>`;
+    })
+    .join("");
+  const taskLayouts = createHomeGridTaskLayouts(todaysTasks);
+  const taskMarkup = taskLayouts.length
+    ? taskLayouts.map((layout) => createHomeGridTask(layout, bounds, range)).join("")
+    : '<p class="home-grid-empty">No tasks planned today.</p>';
+
+  return `
+    <div class="home-day-grid" style="--home-grid-height: ${gridHeight}px">
+      <div class="home-grid-times">${labels}</div>
+      <div class="home-grid-board">
+        <div class="home-grid-track">
+          ${lines}
+          ${taskMarkup}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function getHomeGridBounds(dayTasks) {
+  if (!dayTasks.length) return { start: 8 * 60, end: 13 * 60 };
+
+  const starts = dayTasks.map((task) => timeToMinutes(task.time));
+  const ends = dayTasks.map((task) => timeToMinutes(task.time) + getVisualTaskDuration(task));
+  const start = clamp(Math.floor((Math.min(...starts) - 45) / 30) * 30, 0, 23 * 60);
+  const end = clamp(Math.ceil((Math.max(...ends) + 45) / 30) * 30, start + 3 * 60, 24 * 60);
+  return { start, end };
+}
+
+function getHomeGridLabelMinutes(bounds) {
+  const range = bounds.end - bounds.start;
+  const step = range > 9 * 60 ? 120 : 60;
+  const labels = [];
+
+  for (let minute = bounds.start; minute <= bounds.end; minute += step) {
+    labels.push(minute);
+  }
+
+  if (labels.at(-1) !== bounds.end) labels.push(bounds.end);
+  return labels;
+}
+
+function createHomeGridTaskLayouts(dayTasks) {
+  const items = dayTasks
+    .map((task) => {
+      const start = timeToMinutes(task.time);
+      return {
+        task,
+        start,
+        end: start + getVisualTaskDuration(task),
+      };
+    })
+    .sort((first, second) => first.start - second.start || second.end - first.end);
+  const groups = [];
+
+  items.forEach((item) => {
+    const currentGroup = groups.at(-1);
+    if (!currentGroup || item.start >= currentGroup.end) {
+      groups.push({ end: item.end, items: [item] });
+      return;
+    }
+
+    currentGroup.items.push(item);
+    currentGroup.end = Math.max(currentGroup.end, item.end);
+  });
+
+  return groups.flatMap(assignHomeGridLanes);
+}
+
+function assignHomeGridLanes(group) {
+  const laneEnds = [];
+  const placed = group.items.map((item) => {
+    let lane = laneEnds.findIndex((end) => end <= item.start);
+    if (lane === -1) lane = laneEnds.length;
+    laneEnds[lane] = item.end;
+    return { ...item, lane };
+  });
+  const laneCount = Math.max(laneEnds.length, 1);
+
+  return placed.map((item) => ({ ...item, laneCount }));
+}
+
+function createHomeGridTask(layout, bounds, range) {
+  const duration = Math.max(layout.end - layout.start, GRID_MOVE_SNAP_MINUTES);
+  const top = clamp(((layout.start - bounds.start) / range) * 100, 0, 100);
+  const height = clamp((duration / range) * 100, 0, 100);
+  const laneGap = layout.laneCount > 1 ? 1.4 : 0;
+  const width = (100 - laneGap * (layout.laneCount - 1)) / layout.laneCount;
+  const left = layout.lane * (width + laneGap);
+  const typeStyle = getTaskTypeStyle(layout.task.type);
+  const classes = [
+    "home-grid-task",
+    layout.task.done ? "done" : "",
+    isReminderItem(layout.task) ? "reminder" : "",
+    duration <= 20 ? "short" : "",
+  ].filter(Boolean).join(" ");
+
+  return `
+    <article class="${classes}" style="--home-top: ${top}%; --home-height: ${height}%; --home-left: ${left}%; --home-width: ${width}%; --type-color: ${typeStyle.color}; --type-bg: ${typeStyle.bg};">
+      <span>${formatTimeFromMinutes(layout.start)}</span>
+      <strong>${escapeHTML(layout.task.title)}</strong>
+    </article>
+  `;
 }
 
 function renderHomeWidgetControls() {
@@ -2962,18 +3227,22 @@ function createCompletedTaskCard(task) {
   `;
 }
 
-function createScheduleGrid(occurrences) {
-  return scheduleGridRange.value === "day"
-    ? createDayScheduleGrid(occurrences)
-    : createWeekScheduleGrid(occurrences);
+function createScheduleGrid(occurrences, options = {}) {
+  const range = options.range ?? scheduleGridRange.value;
+  return range === "day"
+    ? createDayScheduleGrid(occurrences, options)
+    : createWeekScheduleGrid(occurrences, options);
 }
 
-function createDayScheduleGrid(occurrences) {
-  const selectedDate = scheduleAnchorDate;
+function createDayScheduleGrid(occurrences, options = {}) {
+  const selectedDate = options.anchorDate ?? scheduleAnchorDate;
   const tasksByDate = groupTasksByDate(occurrences);
   const dayTasks = tasksByDate.get(selectedDate) ?? [];
-  const bounds = getDayTimelineBounds(dayTasks);
+  const bounds = getDayTimelineBounds(dayTasks, {
+    expandForMove: options.context !== "home" && shouldExpandGridTimelineForMove(),
+  });
   const timelineItems = assignTimelineLanes(dayTasks);
+  const zoom = options.zoom ?? scheduleGridZoom;
 
   return `
     <section class="day-grid-card">
@@ -2981,7 +3250,7 @@ function createDayScheduleGrid(occurrences) {
         <h3>${formatDateHeading(selectedDate)}</h3>
         <span>${dayTasks.length} task${dayTasks.length === 1 ? "" : "s"}</span>
       </div>
-      <div class="day-timeline" data-start-minute="${bounds.start}" data-end-minute="${bounds.end}" data-total-minutes="${bounds.totalMinutes}" data-timeline-segments="${serializeTimelineSegments(bounds)}" style="--timeline-height: ${getTimelineHeight(bounds.totalMinutes)}px;">
+      <div class="day-timeline" data-start-minute="${bounds.start}" data-end-minute="${bounds.end}" data-total-minutes="${bounds.totalMinutes}" data-timeline-segments="${serializeTimelineSegments(bounds)}" style="--timeline-height: ${getTimelineHeight(bounds.totalMinutes, zoom)}px;">
         <div class="time-labels">${createTimelineLabels(bounds)}</div>
         <div class="timeline-board" data-grid-date="${selectedDate}">
           ${createTimelineLines(bounds)}
@@ -2992,11 +3261,14 @@ function createDayScheduleGrid(occurrences) {
   `;
 }
 
-function createWeekScheduleGrid(occurrences) {
-  const weekDates = getScheduleWeekDates();
+function createWeekScheduleGrid(occurrences, options = {}) {
+  const weekDates = getScheduleWeekDates(options.anchorDate ?? scheduleAnchorDate);
   const tasksByDate = groupTasksByDate(occurrences);
   const allWeekTasks = weekDates.flatMap((date) => tasksByDate.get(date) ?? []);
-  const bounds = getDayTimelineBounds(allWeekTasks);
+  const bounds = getDayTimelineBounds(allWeekTasks, {
+    expandForMove: options.context !== "home" && shouldExpandGridTimelineForMove(),
+  });
+  const zoom = options.zoom ?? scheduleGridZoom;
   const dateLabels = weekDates
     .map((date) => `<span class="${date === todayISO ? "today" : ""}">${formatWeekDayHeading(date)}</span>`)
     .join("");
@@ -3023,7 +3295,7 @@ function createWeekScheduleGrid(occurrences) {
         <span></span>
         ${dateLabels}
       </div>
-      <div class="day-timeline week-timeline" data-start-minute="${bounds.start}" data-end-minute="${bounds.end}" data-total-minutes="${bounds.totalMinutes}" data-timeline-segments="${serializeTimelineSegments(bounds)}" style="--timeline-height: ${getTimelineHeight(bounds.totalMinutes)}px;">
+      <div class="day-timeline week-timeline" data-start-minute="${bounds.start}" data-end-minute="${bounds.end}" data-total-minutes="${bounds.totalMinutes}" data-timeline-segments="${serializeTimelineSegments(bounds)}" style="--timeline-height: ${getTimelineHeight(bounds.totalMinutes, zoom)}px;">
         <div class="time-labels">${createTimelineLabels(bounds)}</div>
         <div class="timeline-board week-board">
           ${createTimelineLines(bounds)}
@@ -3099,21 +3371,24 @@ function createOverlapTaskKey(task) {
   return `${task.id}:${task.occurrenceDate}:${task.time}:${task.duration}`;
 }
 
-function getGridOccurrences(occurrences) {
-  const range = getGridDateRange();
+function getGridOccurrences(occurrences, options = {}) {
+  const range = getGridDateRange(options);
   return occurrences.filter((task) => {
     const taskDate = parseISODate(task.occurrenceDate);
     return taskDate >= range.start && taskDate <= range.end && matchesGridStatusFilter(task);
   });
 }
 
-function getGridDateRange() {
-  if (scheduleGridRange.value === "day") {
-    const day = parseISODate(scheduleAnchorDate);
+function getGridDateRange(options = {}) {
+  const rangeValue = options.range ?? scheduleGridRange.value;
+  const anchorDate = options.anchorDate ?? scheduleAnchorDate;
+
+  if (rangeValue === "day") {
+    const day = parseISODate(anchorDate);
     return { start: day, end: day };
   }
 
-  const weekStart = getWeekStart(parseISODate(scheduleAnchorDate));
+  const weekStart = getWeekStart(parseISODate(anchorDate));
   return { start: weekStart, end: addDays(weekStart, 6) };
 }
 
@@ -3247,8 +3522,8 @@ function getTimelineHours(bounds) {
   return hours;
 }
 
-function getDayTimelineBounds(dayTasks) {
-  if (shouldExpandGridTimelineForMove()) {
+function getDayTimelineBounds(dayTasks, options = {}) {
+  if (options.expandForMove) {
     return createTimelineBounds([{ start: 0, end: 24 * 60 }]);
   }
 
@@ -3465,8 +3740,8 @@ function formatWeekDayHeading(isoDate) {
   });
 }
 
-function getScheduleWeekDates() {
-  const weekStart = getWeekStart(parseISODate(scheduleAnchorDate));
+function getScheduleWeekDates(anchorDate = scheduleAnchorDate) {
+  const weekStart = getWeekStart(parseISODate(anchorDate));
   return Array.from({ length: 7 }, (_, index) => toDateInputValue(addDays(weekStart, index)));
 }
 
@@ -3684,7 +3959,7 @@ function setScheduleGridZoom(value) {
 }
 
 function updateScheduleGridZoom() {
-  document.querySelectorAll(".day-timeline").forEach((timeline) => {
+  scheduleGrid.querySelectorAll(".day-timeline").forEach((timeline) => {
     timeline.style.setProperty("--timeline-height", `${getTimelineHeight(Number(timeline.dataset.totalMinutes))}px`);
   });
   updateScheduleGridZoomControls();
@@ -3698,8 +3973,80 @@ function updateScheduleGridZoomControls() {
   scheduleGrid.classList.toggle("compact-30", scheduleGridZoom <= 1.25);
 }
 
-function getTimelineHeight(totalMinutes) {
-  return Math.round(totalMinutes * GRID_MINUTE_HEIGHT * scheduleGridZoom);
+function handleHomeGridZoom(event) {
+  if (!event.ctrlKey) return;
+
+  event.preventDefault();
+  setHomeGridZoom(homeGridZoom + (event.deltaY < 0 ? 0.1 : -0.1));
+}
+
+function handleHomeGridTouchStart(event) {
+  if (event.touches.length !== 2) return;
+
+  homePinchStartDistance = getTouchDistance(event.touches);
+  homePinchStartZoom = homeGridZoom;
+}
+
+function handleHomeGridTouchMove(event) {
+  if (event.touches.length !== 2 || homePinchStartDistance === 0) return;
+
+  event.preventDefault();
+  setHomeGridZoom(homePinchStartZoom * (getTouchDistance(event.touches) / homePinchStartDistance));
+}
+
+function resetHomeGridPinch() {
+  homePinchStartDistance = 0;
+  homePinchStartZoom = homeGridZoom;
+}
+
+function setHomeGridZoom(value) {
+  const nextZoom = clamp(value, 0.75, 2.2);
+  if (nextZoom === homeGridZoom) return;
+
+  homeGridZoom = nextZoom;
+  updateHomeGridZoom();
+}
+
+function updateHomeGridZoom() {
+  homeDayGrid?.querySelectorAll(".day-timeline").forEach((timeline) => {
+    timeline.style.setProperty("--timeline-height", `${getTimelineHeight(Number(timeline.dataset.totalMinutes), homeGridZoom)}px`);
+  });
+  updateHomeGridControls();
+}
+
+function updateHomeGridControls() {
+  if (homeGridDatePicker) homeGridDatePicker.value = homeGridAnchorDate;
+  if (homeGridRangeInput) homeGridRangeInput.value = homeGridRange;
+  if (homeGridZoomLevel) homeGridZoomLevel.textContent = `${Math.round(homeGridZoom * 100)}%`;
+  if (homeGridZoomOutButton) homeGridZoomOutButton.disabled = homeGridZoom <= 0.75;
+  if (homeGridZoomInButton) homeGridZoomInButton.disabled = homeGridZoom >= 2.2;
+  homeDayGrid?.classList.toggle("compact-15", homeGridZoom <= 1.9);
+  homeDayGrid?.classList.toggle("compact-30", homeGridZoom <= 1.25);
+}
+
+function setHomeGridAnchorDate(value) {
+  if (!value) return;
+
+  const nextDate = parseISODate(value);
+  if (Number.isNaN(nextDate.getTime())) {
+    if (homeGridDatePicker) homeGridDatePicker.value = homeGridAnchorDate;
+    return;
+  }
+
+  homeGridAnchorDate = toDateInputValue(nextDate);
+  render();
+}
+
+function shiftHomeGridAnchorDate(amount) {
+  setHomeGridAnchorDate(toDateInputValue(addDays(parseISODate(homeGridAnchorDate), amount)));
+}
+
+function getHomeGridNavigationStep() {
+  return homeGridRange === "week" ? 7 : 1;
+}
+
+function getTimelineHeight(totalMinutes, zoom = scheduleGridZoom) {
+  return Math.round(totalMinutes * GRID_MINUTE_HEIGHT * zoom);
 }
 
 function clamp(value, min, max) {
