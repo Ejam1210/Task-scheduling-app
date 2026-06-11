@@ -321,9 +321,23 @@
               <legend>Repeat</legend>
               <label class="repeat-toggle">
                 <input id="editTaskRepeats" name="repeats" type="checkbox" />
-                Repeat this task every week
+                <span id="editRepeatToggleText">Repeat this task every week</span>
               </label>
-              <div class="weekday-picker" aria-label="Edit repeat days">
+              <div class="repeat-mode-field hidden" id="editRepeatModeField">
+                <label>
+                  Repeat type
+                  <select id="editRepeatMode" name="repeatMode">
+                    <option value="interval">Every - days</option>
+                    <option value="weekly">Weekly days</option>
+                  </select>
+                </label>
+                <label class="repeat-interval-field hidden" id="editRepeatIntervalField">
+                  Every
+                  <input id="editRepeatIntervalDays" name="repeatIntervalDays" type="number" min="1" max="365" value="2" inputmode="numeric" />
+                  days
+                </label>
+              </div>
+              <div class="weekday-picker" id="editWeekdayPicker" aria-label="Edit repeat days">
                 <label><input name="editRepeatDays" type="checkbox" value="1" /> Mon</label>
                 <label><input name="editRepeatDays" type="checkbox" value="2" /> Tue</label>
                 <label><input name="editRepeatDays" type="checkbox" value="3" /> Wed</label>
@@ -352,14 +366,11 @@
         </div>
         <div class="panel-grid">
           <form class="task-form" id="taskForm">
-            <div class="form-header task-form-header">
+            <div class="form-header task-form-header" id="taskFormHeader" role="button" tabindex="0" aria-expanded="true" aria-controls="taskFormBody">
               <div>
                 <h2>Add a task</h2>
                 <p>Plan what needs doing and when it should happen.</p>
               </div>
-              <button class="task-form-toggle" id="taskFormToggle" type="button" aria-expanded="true" aria-controls="taskFormBody" title="Collapse" aria-label="Collapse add task">
-                <span aria-hidden="true">^</span>
-              </button>
             </div>
 
             <div class="task-form-body" id="taskFormBody">
@@ -442,8 +453,22 @@
                 <legend>Repeat</legend>
                 <label class="repeat-toggle">
                   <input id="taskRepeats" name="repeats" type="checkbox" />
-                  Repeat this task every week
+                  <span id="repeatToggleText">Repeat this task every week</span>
                 </label>
+                <div class="repeat-mode-field hidden" id="repeatModeField">
+                  <label>
+                    Repeat type
+                    <select id="taskRepeatMode" name="repeatMode">
+                      <option value="interval">Every - days</option>
+                      <option value="weekly">Weekly days</option>
+                    </select>
+                  </label>
+                  <label class="repeat-interval-field hidden" id="repeatIntervalField">
+                    Every
+                    <input id="taskRepeatIntervalDays" name="repeatIntervalDays" type="number" min="1" max="365" value="2" inputmode="numeric" />
+                    days
+                  </label>
+                </div>
                 <div class="weekday-picker" id="weekdayPicker" aria-label="Repeat days">
                   <label><input name="repeatDays" type="checkbox" value="1" /> Mon</label>
                   <label><input name="repeatDays" type="checkbox" value="2" /> Tue</label>
@@ -477,13 +502,15 @@
                 <p id="todaySummary">No tasks scheduled for today yet.</p>
               </div>
             </div>
+            <div class="today-next-task" id="todayNextTask" aria-live="polite"></div>
             <div class="today-dayparts" id="todayDayparts" aria-label="Today's time periods"></div>
           </aside>
+
+          <section class="home-widgets-card" aria-label="Widgets">
+            <div class="home-widget-grid" id="homeWidgetGrid"></div>
+          </section>
         </div>
 
-        <section class="home-widgets-card" aria-label="Widgets">
-          <div class="home-widget-grid" id="homeWidgetGrid"></div>
-        </section>
       </section>
 
       <section class="tab-panel" id="schedulePanel" aria-labelledby="Schedule">

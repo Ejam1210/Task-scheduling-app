@@ -45,6 +45,7 @@ const STREAK_MINUTES_TO_KEEP = 10;
 const TASK_REMINDER_INTERVAL_MS = 30 * 1000;
 const TASK_REMINDER_GRACE_MS = 2 * 60 * 1000;
 const HOME_WIDGET_SNAP_SIZE = 24;
+const HOME_WIDGET_ROW_HEIGHT = 168;
 const HOME_WIDGET_DESKTOP_QUERY = "(min-width: 761px) and (pointer: fine)";
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const BUILT_IN_TASK_TYPES = ["Focus", "Personal", "Study", "Health", "Errand"];
@@ -60,6 +61,8 @@ const HOME_WIDGET_DEFINITIONS = [
   { id: "typeMix", label: "Types" },
   { id: "xpGoal", label: "xp goal" },
 ];
+const DEFAULT_HOME_WIDGETS = ["dayGrid", "stats", "streak"];
+const HOME_WIDGET_RENDER_ORDER = ["dayGrid", "stats", "week", "streak", "xpGoal", "focus", "upcoming", "reminders", "typeMix"];
 
 const taskForm = document.querySelector("#taskForm");
 const taskList = document.querySelector("#taskList");
@@ -85,12 +88,16 @@ const todayProgressRing = document.querySelector("#todayProgressRing");
 const todayProgressPercent = document.querySelector("#todayProgressPercent");
 const todayStatusChip = document.querySelector("#todayStatusChip");
 const todayDayparts = document.querySelector("#todayDayparts");
+const todayNextTask = document.querySelector("#todayNextTask");
+const daySummary = document.querySelector(".day-summary");
 const todayLabel = document.querySelector("#todayLabel");
 const todayXpValue = document.querySelector("#todayXpValue");
 const topStreakPill = document.querySelector("#topStreakPill");
 const topStreakValue = document.querySelector("#topStreakValue");
 const scheduleFilter = document.querySelector("#scheduleFilter");
 const scheduleGridRange = document.querySelector("#scheduleGridRange");
+const schedulePanel = document.querySelector("#schedulePanel");
+const scheduleHeader = document.querySelector("#schedulePanel .schedule-header");
 const scheduleControls = document.querySelector(".schedule-controls");
 const scheduleDatePicker = document.querySelector("#scheduleDatePicker");
 const schedulePrevDateButton = document.querySelector("#schedulePrevDate");
@@ -114,8 +121,13 @@ const priorityField = document.querySelector("#priorityField");
 const taskNotesInput = document.querySelector("#taskNotes");
 const taskTemplateSelect = document.querySelector("#taskTemplate");
 const saveTemplateButton = document.querySelector("#saveTemplateButton");
-const taskFormToggle = document.querySelector("#taskFormToggle");
+const taskFormHeader = document.querySelector("#taskFormHeader");
 const taskRepeatsInput = document.querySelector("#taskRepeats");
+const repeatToggleText = document.querySelector("#repeatToggleText");
+const repeatModeField = document.querySelector("#repeatModeField");
+const taskRepeatModeInput = document.querySelector("#taskRepeatMode");
+const repeatIntervalField = document.querySelector("#repeatIntervalField");
+const taskRepeatIntervalDaysInput = document.querySelector("#taskRepeatIntervalDays");
 const weekdayPicker = document.querySelector("#weekdayPicker");
 const profileButton = document.querySelector("#profileButton");
 const profileAvatar = document.querySelector("#profileAvatar");
@@ -179,6 +191,12 @@ const editTaskTypeInput = document.querySelector("#editTaskType");
 const editTaskPriorityInput = document.querySelector("#editTaskPriority");
 const editTaskNotesInput = document.querySelector("#editTaskNotes");
 const editTaskRepeatsInput = document.querySelector("#editTaskRepeats");
+const editRepeatToggleText = document.querySelector("#editRepeatToggleText");
+const editRepeatModeField = document.querySelector("#editRepeatModeField");
+const editRepeatModeInput = document.querySelector("#editRepeatMode");
+const editRepeatIntervalField = document.querySelector("#editRepeatIntervalField");
+const editRepeatIntervalDaysInput = document.querySelector("#editRepeatIntervalDays");
+const editWeekdayPicker = document.querySelector("#editWeekdayPicker");
 const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) ?? null;
 const cancelEditTaskButton = document.querySelector("#cancelEditTask");
 
@@ -347,6 +365,7 @@ renderTaskTemplateOptions();
 applyWeeklyGoalsToControls();
 applyFeatureSettingsToControls();
 applyTheme(currentTheme);
+setupScheduleTaskForm();
 setTaskFormCollapsed(taskFormCollapsedPreference);
 toggleItemKindFields();
 renderHomeWidgetControls();
@@ -413,14 +432,43 @@ scheduleGrid.addEventListener("touchend", resetGridPinch);
 gridZoomInButton.addEventListener("click", () => setScheduleGridZoom(scheduleGridZoom + 0.15));
 gridZoomOutButton.addEventListener("click", () => setScheduleGridZoom(scheduleGridZoom - 0.15));
 taskItemKindInput.addEventListener("change", toggleItemKindFields);
+taskRepeatModeInput.addEventListener("change", () => {
+  toggleRepeatControls();
+  if (taskRepeatsInput.checked && getTaskRepeatMode() === "weekly" && getSelectedRepeatDays().length === 0) {
+    setRepeatDayForDate(taskDateInput.value);
+  }
+});
 taskTypeInput.addEventListener("change", toggleCustomTypeInput);
 taskTemplateSelect.addEventListener("change", applySelectedTaskTemplate);
 saveTemplateButton.addEventListener("click", saveCurrentTaskTemplate);
-taskFormToggle?.addEventListener("click", () => {
+taskFormHeader?.addEventListener("click", toggleTaskFormFromHeader);
+taskFormHeader?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  toggleTaskFormFromHeader();
+});
+function toggleTaskFormFromHeader() {
   taskFormCollapsedPreference = !taskFormCollapsedPreference;
   setTaskFormCollapsed(taskFormCollapsedPreference);
-});
+}
 editItemKindInput.addEventListener("change", toggleEditItemKindFields);
+editTaskRepeatsInput.addEventListener("change", () => {
+  toggleEditRepeatControls();
+  if (editTaskRepeatsInput.checked && getEditRepeatMode() === "weekly" && getEditRepeatDays().length === 0) {
+    setEditRepeatDayForDate(editTaskDateInput.value);
+  }
+});
+editRepeatModeInput.addEventListener("change", () => {
+  toggleEditRepeatControls();
+  if (editTaskRepeatsInput.checked && getEditRepeatMode() === "weekly" && getEditRepeatDays().length === 0) {
+    setEditRepeatDayForDate(editTaskDateInput.value);
+  }
+});
+editTaskDateInput.addEventListener("change", () => {
+  if (editTaskRepeatsInput.checked && getEditRepeatMode() === "weekly" && getEditRepeatDays().length === 0) {
+    setEditRepeatDayForDate(editTaskDateInput.value);
+  }
+});
 homeWidgetAddButton?.addEventListener("click", toggleHomeWidgetPicker);
 homeWidgetControls?.addEventListener("click", handleHomeWidgetToggle);
 homeWidgetGrid?.addEventListener("click", handleHomeWidgetGridClick);
@@ -463,13 +511,14 @@ assistantPromptButtons.forEach((button) => {
 });
 
 taskRepeatsInput.addEventListener("change", () => {
-  if (taskRepeatsInput.checked && getSelectedRepeatDays().length === 0) {
+  toggleRepeatControls();
+  if (taskRepeatsInput.checked && getTaskRepeatMode() === "weekly" && getSelectedRepeatDays().length === 0) {
     setRepeatDayForDate(taskDateInput.value);
   }
 });
 
 taskDateInput.addEventListener("change", () => {
-  if (taskRepeatsInput.checked && getSelectedRepeatDays().length === 0) {
+  if (taskRepeatsInput.checked && getTaskRepeatMode() === "weekly" && getSelectedRepeatDays().length === 0) {
     setRepeatDayForDate(taskDateInput.value);
   }
 });
@@ -479,10 +528,14 @@ taskForm.addEventListener("submit", (event) => {
 
   const formData = new FormData(taskForm);
   const repeats = formData.get("repeats") === "on";
-  const selectedRepeatDays = getSelectedRepeatDays();
   const startDate = formData.get("date");
   const taskType = getSubmittedTaskType(formData);
   const itemKind = normalizeItemKind(formData.get("itemKind"));
+  const repeatMode = repeats ? getRepeatModeForItemKind(itemKind, formData.get("repeatMode")) : "weekly";
+  const selectedRepeatDays = repeats ? getSelectedRepeatDays() : [];
+  const repeatIntervalDays = repeats && repeatMode === "interval"
+    ? normalizeRepeatIntervalDays(formData.get("repeatIntervalDays"))
+    : 1;
   const task = {
     id: crypto.randomUUID(),
     itemKind,
@@ -494,6 +547,8 @@ taskForm.addEventListener("submit", (event) => {
     priority: normalizePriority(formData.get("priority")),
     notes: formData.get("notes").trim(),
     repeats,
+    repeatMode,
+    repeatIntervalDays,
     repeatDays: repeats ? selectedRepeatDays : [],
     completedDates: [],
     done: false,
@@ -505,7 +560,7 @@ taskForm.addEventListener("submit", (event) => {
     return;
   }
 
-  if (task.repeats && task.repeatDays.length === 0) {
+  if (task.repeats && task.repeatMode === "weekly" && task.repeatDays.length === 0) {
     task.repeatDays = [weekdayForISODate(task.date)];
   }
 
@@ -515,10 +570,13 @@ taskForm.addEventListener("submit", (event) => {
   resetForm();
   switchTab("schedule");
   render();
+  taskFormCollapsedPreference = true;
+  setTaskFormCollapsed(true);
 });
 
 taskList.addEventListener("click", handleTaskAction);
 scheduleGrid.addEventListener("click", handleTaskAction);
+daySummary?.addEventListener("click", handleTaskAction);
 
 function handleTaskAction(event) {
   const button = event.target.closest("button[data-action]");
@@ -788,7 +846,7 @@ function buildScheduleOccurrences() {
 
       for (let day = new Date(firstDay); day <= scheduleEnd; day = addDays(day, 1)) {
         const isoDate = toDateInputValue(day);
-        if (task.repeatDays.includes(day.getDay())) {
+        if (doesTaskRepeatOnDate(task, day)) {
           occurrences.push(createOccurrence(task, isoDate));
         }
       }
@@ -827,7 +885,7 @@ function buildMissedOccurrences() {
     const firstDay = taskStart > missedStart ? taskStart : missedStart;
 
     for (let day = new Date(firstDay); day <= missedEnd; day = addDays(day, 1)) {
-      if (!task.repeatDays.includes(day.getDay())) continue;
+      if (!doesTaskRepeatOnDate(task, day)) continue;
 
       const isoDate = toDateInputValue(day);
       const occurrence = createOccurrence(task, isoDate);
@@ -838,6 +896,31 @@ function buildMissedOccurrences() {
   });
 
   return missed.sort((a, b) => `${b.occurrenceDate}T${b.time}`.localeCompare(`${a.occurrenceDate}T${a.time}`));
+}
+
+function doesTaskRepeatOnDate(task, day) {
+  const taskStart = parseISODate(task.date);
+  if (day < taskStart) return false;
+  const repeatDays = normalizeRepeatDays(task.repeatDays);
+  const matchesWeeklyDay = repeatDays.includes(day.getDay());
+
+  if (getTaskRepeatModeValue(task) === "interval") {
+    const daysSinceStart = getDaysBetween(taskStart, day);
+    const matchesInterval = daysSinceStart % normalizeRepeatIntervalDays(task.repeatIntervalDays) === 0;
+    return matchesInterval || matchesWeeklyDay;
+  }
+
+  return matchesWeeklyDay;
+}
+
+function getTaskRepeatModeValue(task) {
+  return task?.repeatMode === "interval" ? "interval" : "weekly";
+}
+
+function getDaysBetween(startDate, endDate) {
+  const start = startOfToday(startDate).getTime();
+  const end = startOfToday(endDate).getTime();
+  return Math.round((end - start) / 86400000);
 }
 
 function buildCompletedHistory() {
@@ -891,6 +974,7 @@ function renderTodaySummary(occurrences) {
   todayStatusChip.textContent = `${progressPercent}%`;
   todayProgressRing.style.setProperty("--today-progress", `${progressPercent * 3.6}deg`);
   todayDayparts.innerHTML = createTodayDayparts(todaysTasks);
+  todayNextTask.innerHTML = createTodayNextTask(todaysTasks);
 
   if (todaysTasks.length === 0) {
     todaySummary.textContent = "No tasks scheduled for today yet.";
@@ -902,6 +986,59 @@ function renderTodaySummary(occurrences) {
     remaining === 0
       ? "Everything planned for today is complete."
       : `${remaining} task${remaining === 1 ? "" : "s"} still planned for today.`;
+}
+
+function createTodayNextTask(todaysTasks) {
+  const nextTask = getNextTodayTask(todaysTasks);
+
+  if (!nextTask) {
+    return `
+      <article class="today-next-card empty">
+        <span>Next</span>
+        <strong>All clear</strong>
+        <small>No unfinished tasks left today.</small>
+      </article>
+    `;
+  }
+
+  const isReminder = isReminderItem(nextTask);
+  const isTimerActive = isActiveTimerFor(nextTask);
+  const isBlocked = Boolean(activeTimer && !isTimerActive);
+  const action = isReminder ? "complete-reminder" : isTimerActive ? "finish" : "start";
+  const buttonLabel = isReminder ? "Done" : isTimerActive ? "Finish" : "Start";
+  const typeStyle = createTypeStyleAttribute(nextTask.type);
+  const timerMarkup = isTimerActive
+    ? `<small data-timer-countdown>${formatTimerRemaining(activeTimer)}</small>`
+    : `<small>${escapeHTML(nextTask.type)} &middot; ${formatTimeRange(nextTask)}</small>`;
+
+  return `
+    <article class="today-next-card" data-task-id="${nextTask.id}" data-occurrence-date="${nextTask.occurrenceDate}" ${typeStyle}>
+      <div class="today-next-copy">
+        <span>Next task</span>
+        <strong>${escapeHTML(nextTask.title)}</strong>
+        ${timerMarkup}
+      </div>
+      <button class="today-next-start" type="button" data-action="${action}" ${isBlocked ? "disabled" : ""}>
+        ${buttonLabel}
+      </button>
+    </article>
+  `;
+}
+
+function getNextTodayTask(todaysTasks) {
+  const unfinished = todaysTasks
+    .filter((task) => !task.done)
+    .sort((first, second) => timeToMinutes(first.time) - timeToMinutes(second.time));
+  if (!unfinished.length) return null;
+
+  if (activeTimer) {
+    const runningTask = unfinished.find((task) => isActiveTimerFor(task));
+    if (runningTask) return runningTask;
+  }
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  return unfinished.find((task) => timeToMinutes(task.time) >= currentMinutes) ?? unfinished[0];
 }
 
 function updateTopXp(pointsToday) {
@@ -931,7 +1068,7 @@ function animateTopXpIncrease(fromXp, toXp, gainedXp) {
   pill?.classList.remove("xp-pulse");
   void pill?.offsetWidth;
   pill?.classList.add("xp-pulse");
-  createXpFlyout(gainedXp, pill);
+  createXpLightning(gainedXp, pill);
 
   const step = (timestamp) => {
     const progress = clamp((timestamp - start) / duration, 0, 1);
@@ -943,19 +1080,45 @@ function animateTopXpIncrease(fromXp, toXp, gainedXp) {
   requestAnimationFrame(step);
 }
 
-function createXpFlyout(gainedXp, target) {
+function createXpLightning(gainedXp, target) {
   if (!target) return;
 
   const rect = target.getBoundingClientRect();
-  const startX = Math.min(window.innerWidth - 112, Math.max(18, window.innerWidth * 0.58));
-  const startY = Math.max(96, window.innerHeight - 138);
+  const targetX = rect.left + rect.width / 2;
+  const targetY = rect.top + rect.height / 2;
+  const startPositions = [
+    { x: Math.max(16, targetX - 170), y: Math.max(72, targetY + 170), rotate: "-18deg" },
+    { x: Math.min(window.innerWidth - 44, targetX + 150), y: Math.max(62, targetY + 126), rotate: "22deg" },
+    { x: Math.max(18, targetX - 46), y: Math.max(48, targetY + 210), rotate: "4deg" },
+  ];
+
+  startPositions.forEach((start, index) => {
+    const bolt = document.createElement("span");
+    bolt.className = "xp-lightning-bolt";
+    bolt.style.setProperty("--bolt-start-x", `${start.x}px`);
+    bolt.style.setProperty("--bolt-start-y", `${start.y}px`);
+    bolt.style.setProperty("--bolt-delta-x", `${targetX - start.x}px`);
+    bolt.style.setProperty("--bolt-delta-y", `${targetY - start.y}px`);
+    bolt.style.setProperty("--bolt-delay", `${index * 72}ms`);
+    bolt.style.setProperty("--bolt-rotate", start.rotate);
+    document.body.append(bolt);
+    bolt.addEventListener("animationend", () => bolt.remove(), { once: true });
+  });
+
+  const ring = document.createElement("span");
+  ring.className = "xp-impact-ring";
+  ring.style.setProperty("--impact-x", `${targetX}px`);
+  ring.style.setProperty("--impact-y", `${targetY}px`);
+  document.body.append(ring);
+  ring.addEventListener("animationend", () => ring.remove(), { once: true });
+
   const chip = document.createElement("span");
   chip.className = "xp-flyout";
   chip.textContent = `+${formatPoints(gainedXp)} xp`;
-  chip.style.setProperty("--xp-start-x", `${startX}px`);
-  chip.style.setProperty("--xp-start-y", `${startY}px`);
-  chip.style.setProperty("--xp-delta-x", `${rect.left + rect.width / 2 - startX}px`);
-  chip.style.setProperty("--xp-delta-y", `${rect.top + rect.height / 2 - startY}px`);
+  chip.style.setProperty("--xp-start-x", `${targetX - 20}px`);
+  chip.style.setProperty("--xp-start-y", `${targetY + 8}px`);
+  chip.style.setProperty("--xp-delta-x", "0px");
+  chip.style.setProperty("--xp-delta-y", "-46px");
   document.body.append(chip);
   chip.addEventListener("animationend", () => chip.remove(), { once: true });
 }
@@ -1053,7 +1216,7 @@ function handleHomeWidgetGridClick(event) {
 function renderHomeWidgets(occurrences, completedHistory) {
   if (!homeWidgetGrid) return;
 
-  const widgets = homeWidgets
+  const widgets = getOrderedHomeWidgets()
     .map((widgetId) => createHomeWidget(widgetId, occurrences, completedHistory))
     .filter(Boolean);
   homeWidgetGrid.closest(".home-widgets-card")?.classList.toggle("hidden", widgets.length === 0);
@@ -1083,21 +1246,25 @@ function applyHomeWidgetLayout() {
   }
 
   const metrics = getHomeWidgetLayoutMetrics();
+  const defaultPlacements = getDefaultHomeWidgetPlacements(metrics);
+  const occupancy = [];
   homeWidgetGrid.classList.add("home-widget-grid-desktop");
   cards.forEach((card, index) => {
     const widgetId = card.dataset.homeWidgetCard;
     const span = getHomeWidgetSpan(widgetId);
-    const fallback = getDefaultHomeWidgetPosition(index, span, metrics);
+    const rows = getHomeWidgetRowSpan(widgetId);
+    const fallback = defaultPlacements[widgetId] ?? getDefaultHomeWidgetPosition(index, span, metrics);
     const savedPosition = homeWidgetLayout[widgetId] ?? fallback;
     const width = getHomeWidgetWidth(span, metrics);
-    const savedX = Number.isFinite(Number(savedPosition.x)) ? Number(savedPosition.x) : fallback.x;
-    const savedY = Number.isFinite(Number(savedPosition.y)) ? Number(savedPosition.y) : fallback.y;
-    const x = snapHomeWidgetValue(clamp(savedX, 0, Math.max(metrics.width - width, 0)));
-    const y = snapHomeWidgetValue(Math.max(savedY, 0));
+    const desiredSlot = getHomeWidgetSlotFromPosition(savedPosition, span, metrics);
+    const fallbackSlot = getHomeWidgetSlotFromPosition(fallback, span, metrics);
+    const openSlot = getOpenHomeWidgetSlot(occupancy, desiredSlot, fallbackSlot, span, rows, metrics.columns);
+    const { x, y } = getHomeWidgetPositionFromSlot(openSlot, metrics);
 
     card.style.width = `${width}px`;
     card.style.left = `${x}px`;
     card.style.top = `${y}px`;
+    occupyHomeWidgetSlot(occupancy, openSlot, span, rows);
   });
   updateHomeWidgetCanvasHeight();
 }
@@ -1110,14 +1277,149 @@ function getHomeWidgetLayoutMetrics() {
   const width = Math.max(homeWidgetGrid?.clientWidth ?? 0, 320);
   const gap = 12;
   const columns = 4;
-  const columnWidth = Math.max(180, Math.floor((width - gap * (columns - 1)) / columns));
+  const columnWidth = Math.max(120, Math.floor((width - gap * (columns - 1)) / columns));
   return { width, gap, columns, columnWidth };
 }
 
 function getHomeWidgetWidth(span, metrics) {
-  return span === 2
-    ? Math.min(metrics.width, metrics.columnWidth * 2 + metrics.gap)
-    : Math.min(metrics.width, metrics.columnWidth);
+  const safeSpan = clamp(Math.round(span), 1, metrics.columns);
+  return Math.min(metrics.width, metrics.columnWidth * safeSpan + metrics.gap * (safeSpan - 1));
+}
+
+function getDefaultHomeWidgetPlacements(metrics) {
+  const occupancy = [];
+  const placements = {};
+  const orderedWidgets = getOrderedHomeWidgets();
+
+  orderedWidgets.forEach((widgetId) => {
+    const span = getHomeWidgetSpan(widgetId);
+    const rows = getHomeWidgetRowSpan(widgetId);
+    const position = findHomeWidgetSlot(occupancy, span, rows, metrics.columns);
+    placements[widgetId] = {
+      x: position.column * (metrics.columnWidth + metrics.gap),
+      y: position.row * HOME_WIDGET_ROW_HEIGHT,
+    };
+    occupyHomeWidgetSlot(occupancy, position, span, rows);
+  });
+
+  return placements;
+}
+
+function getOrderedHomeWidgets() {
+  return [
+    ...HOME_WIDGET_RENDER_ORDER.filter((widgetId) => homeWidgets.includes(widgetId)),
+    ...homeWidgets.filter((widgetId) => !HOME_WIDGET_RENDER_ORDER.includes(widgetId)),
+  ];
+}
+
+function findHomeWidgetSlot(occupancy, span, rows, columns) {
+  for (let row = 0; row < 100; row += 1) {
+    for (let column = 0; column <= columns - span; column += 1) {
+      if (canFitHomeWidgetSlot(occupancy, row, column, span, rows)) {
+        return { row, column };
+      }
+    }
+  }
+
+  return { row: occupancy.length, column: 0 };
+}
+
+function canFitHomeWidgetSlot(occupancy, row, column, span, rows) {
+  for (let rowIndex = row; rowIndex < row + rows; rowIndex += 1) {
+    for (let columnIndex = column; columnIndex < column + span; columnIndex += 1) {
+      if (occupancy[rowIndex]?.[columnIndex]) return false;
+    }
+  }
+  return true;
+}
+
+function occupyHomeWidgetSlot(occupancy, position, span, rows) {
+  for (let rowIndex = position.row; rowIndex < position.row + rows; rowIndex += 1) {
+    occupancy[rowIndex] ??= [];
+    for (let columnIndex = position.column; columnIndex < position.column + span; columnIndex += 1) {
+      occupancy[rowIndex][columnIndex] = true;
+    }
+  }
+}
+
+function getOpenHomeWidgetSlot(occupancy, desiredSlot, fallbackSlot, span, rows, columns) {
+  if (canFitHomeWidgetSlot(occupancy, desiredSlot.row, desiredSlot.column, span, rows)) {
+    return desiredSlot;
+  }
+
+  if (canFitHomeWidgetSlot(occupancy, fallbackSlot.row, fallbackSlot.column, span, rows)) {
+    return fallbackSlot;
+  }
+
+  return findNearestHomeWidgetSlot(occupancy, desiredSlot, span, rows, columns);
+}
+
+function findNearestHomeWidgetSlot(occupancy, desiredSlot, span, rows, columns) {
+  const maxRow = Math.max(80, occupancy.length + rows + 12, desiredSlot.row + rows + 12);
+  let bestSlot = null;
+  let bestScore = Infinity;
+
+  for (let row = 0; row <= maxRow; row += 1) {
+    for (let column = 0; column <= columns - span; column += 1) {
+      if (!canFitHomeWidgetSlot(occupancy, row, column, span, rows)) continue;
+      const rowDistance = Math.abs(row - desiredSlot.row);
+      const columnDistance = Math.abs(column - desiredSlot.column);
+      const score = rowDistance * 4 + columnDistance + (row < desiredSlot.row ? 0.35 : 0);
+      if (score < bestScore) {
+        bestScore = score;
+        bestSlot = { row, column };
+      }
+    }
+  }
+
+  return bestSlot ?? findHomeWidgetSlot(occupancy, span, rows, columns);
+}
+
+function createHomeWidgetOccupancy(excludedWidgetId, metrics) {
+  const occupancy = [];
+  const cards = [...homeWidgetGrid.querySelectorAll(".home-widget[data-home-widget-card]")];
+
+  cards.forEach((card) => {
+    const widgetId = card.dataset.homeWidgetCard;
+    if (widgetId === excludedWidgetId) return;
+
+    const span = getHomeWidgetSpan(widgetId);
+    const rows = getHomeWidgetRowSpan(widgetId);
+    const slot = getHomeWidgetSlotFromPosition(
+      {
+        x: parseFloat(card.style.left) || 0,
+        y: parseFloat(card.style.top) || 0,
+      },
+      span,
+      metrics,
+    );
+    occupyHomeWidgetSlot(occupancy, slot, span, rows);
+  });
+
+  return occupancy;
+}
+
+function getHomeWidgetSlotFromPosition(position, span, metrics) {
+  const column = getHomeWidgetColumnFromX(position?.x, span, metrics);
+  const row = getHomeWidgetRowFromY(position?.y);
+  return { row, column };
+}
+
+function getHomeWidgetPositionFromSlot(slot, metrics) {
+  return {
+    x: slot.column * (metrics.columnWidth + metrics.gap),
+    y: slot.row * HOME_WIDGET_ROW_HEIGHT,
+  };
+}
+
+function getHomeWidgetColumnFromX(value, span, metrics) {
+  const columnStep = metrics.columnWidth + metrics.gap;
+  const maxColumn = Math.max(metrics.columns - span, 0);
+  return clamp(Math.round((Number(value) || 0) / columnStep), 0, maxColumn);
+}
+
+function getHomeWidgetRowFromY(value) {
+  return Math.max(0, Math.round((Number(value) || 0) / HOME_WIDGET_ROW_HEIGHT));
 }
 
 function getDefaultHomeWidgetPosition(index, span, metrics) {
@@ -1125,6 +1427,7 @@ function getDefaultHomeWidgetPosition(index, span, metrics) {
     .slice(0, index)
     .reduce((cursor, widgetId) => {
       const widgetSpan = getHomeWidgetSpan(widgetId);
+      const widgetRows = getHomeWidgetRowSpan(widgetId);
       const nextCursor = { ...cursor };
       if (nextCursor.column + widgetSpan > metrics.columns) {
         nextCursor.column = 0;
@@ -1133,7 +1436,7 @@ function getDefaultHomeWidgetPosition(index, span, metrics) {
       nextCursor.column += widgetSpan;
       if (nextCursor.column >= metrics.columns) {
         nextCursor.column = 0;
-        nextCursor.row += 1;
+        nextCursor.row += widgetRows;
       }
       return nextCursor;
     }, { column: 0, row: 0 });
@@ -1142,16 +1445,35 @@ function getDefaultHomeWidgetPosition(index, span, metrics) {
   const row = layoutCursor.column + span > metrics.columns ? layoutCursor.row + 1 : layoutCursor.row;
   return {
     x: snapHomeWidgetValue(column * (metrics.columnWidth + metrics.gap)),
-    y: snapHomeWidgetValue(row * 164),
+    y: snapHomeWidgetValue(row * HOME_WIDGET_ROW_HEIGHT),
   };
 }
 
 function getHomeWidgetSpan(widgetId) {
-  return widgetId === "dayGrid" || widgetId === "week" ? 2 : 1;
+  if (widgetId === "dayGrid") return 4;
+  if (widgetId === "stats" || widgetId === "week") return 2;
+  return 1;
+}
+
+function getHomeWidgetRowSpan(widgetId) {
+  if (widgetId === "dayGrid") return 5;
+  if (widgetId === "stats") return 2;
+  return 1;
 }
 
 function snapHomeWidgetValue(value) {
   return Math.round(value / HOME_WIDGET_SNAP_SIZE) * HOME_WIDGET_SNAP_SIZE;
+}
+
+function snapHomeWidgetX(value, width, metrics) {
+  const maxX = Math.max(metrics.width - width, 0);
+  const columnStep = metrics.columnWidth + metrics.gap;
+  const column = clamp(Math.round((Number(value) || 0) / columnStep), 0, metrics.columns - 1);
+  return clamp(column * columnStep, 0, maxX);
+}
+
+function snapHomeWidgetY(value) {
+  return Math.max(0, Math.round((Number(value) || 0) / HOME_WIDGET_ROW_HEIGHT) * HOME_WIDGET_ROW_HEIGHT);
 }
 
 function updateHomeWidgetCanvasHeight() {
@@ -1196,10 +1518,16 @@ function updateHomeWidgetDrag(event) {
   if (!homeWidgetDragState || event.pointerId !== homeWidgetDragState.pointerId) return;
 
   const gridRect = homeWidgetGrid.getBoundingClientRect();
-  const maxX = Math.max(homeWidgetGrid.clientWidth - homeWidgetDragState.width, 0);
   const maxY = Math.max(homeWidgetGrid.clientHeight + 260 - homeWidgetDragState.height, 0);
-  const x = snapHomeWidgetValue(clamp(event.clientX - gridRect.left - homeWidgetDragState.offsetX, 0, maxX));
-  const y = snapHomeWidgetValue(clamp(event.clientY - gridRect.top - homeWidgetDragState.offsetY, 0, maxY));
+  const metrics = getHomeWidgetLayoutMetrics();
+  const rawX = event.clientX - gridRect.left - homeWidgetDragState.offsetX;
+  const rawY = clamp(event.clientY - gridRect.top - homeWidgetDragState.offsetY, 0, maxY);
+  const span = getHomeWidgetSpan(homeWidgetDragState.widgetId);
+  const rows = getHomeWidgetRowSpan(homeWidgetDragState.widgetId);
+  const desiredSlot = getHomeWidgetSlotFromPosition({ x: rawX, y: rawY }, span, metrics);
+  const occupancy = createHomeWidgetOccupancy(homeWidgetDragState.widgetId, metrics);
+  const openSlot = getOpenHomeWidgetSlot(occupancy, desiredSlot, desiredSlot, span, rows, metrics.columns);
+  const { x, y } = getHomeWidgetPositionFromSlot(openSlot, metrics);
 
   homeWidgetDragState.moved = true;
   homeWidgetDragState.card.style.left = `${x}px`;
@@ -1232,7 +1560,7 @@ function cancelHomeWidgetDrag(event) {
 }
 
 function createHomeWidget(widgetId, occurrences, completedHistory) {
-  if (widgetId === "stats") return createStatsHomeWidget(occurrences);
+  if (widgetId === "stats") return createStatsHomeWidget(occurrences, completedHistory);
   if (widgetId === "streak") return createStreakHomeWidget(completedHistory);
   if (widgetId === "dayGrid") return createDayGridHomeWidget(occurrences);
   if (widgetId === "week") return createWeekHomeWidget(occurrences);
@@ -1255,17 +1583,60 @@ function createHomeWidgetShell(widgetId, label, headline, content, extraClass = 
   `;
 }
 
-function createStatsHomeWidget(occurrences) {
-  const todaysTasks = occurrences.filter((task) => task.occurrenceDate === todayISO && !task.skipped);
-  const completed = todaysTasks.filter((task) => task.done);
-  const points = completed.reduce((total, task) => total + calculatePoints(task), 0);
-  const minutes = completed.reduce((total, task) => total + calculateCompletedMinutes(task), 0);
+function createStatsHomeWidget(occurrences, completedHistory) {
+  const days = 7;
+  const dailyStats = buildDailyStats(completedHistory, days);
+  const summary = summarizeStatsRange(dailyStats);
+  const completed = getCompletedTasksInStatsRange(completedHistory, days);
+  const topType = buildCompletedTypeStats(completed)[0];
+  const bars = dailyStats
+    .map((day) => {
+      const maxPoints = Math.max(...dailyStats.map((stat) => stat.points), 20);
+      const height = day.points > 0 ? Math.max((day.points / maxPoints) * 100, 12) : 4;
+      return `
+        <span class="home-stats-bar" title="${escapeHTML(formatDateHeading(day.date))}: ${formatPoints(day.points)} xp">
+          <i style="height: ${height}%"></i>
+          <small>${DAY_NAMES[parseISODate(day.date).getDay()]}</small>
+        </span>
+      `;
+    })
+    .join("");
+  const momentumClass = summary.momentumChange > 0 ? "up" : summary.momentumChange < 0 ? "down" : "flat";
+  const topTypeText = topType
+    ? `${topType.type} led with ${formatPoints(topType.points)} xp`
+    : "Complete tasks to build your task mix.";
 
   return createHomeWidgetShell(
     "stats",
     "Stats",
-    `${formatPoints(points)} xp`,
-    `<p>${completed.length}/${todaysTasks.length} done &middot; ${formatMinutesAsHours(minutes)}</p>`,
+    `${formatPoints(summary.totalPoints)} xp`,
+    `
+      <div class="home-stats-summary">
+        <div class="home-stats-kpis">
+          <article>
+            <span>Time</span>
+            <strong>${formatMinutesAsHours(summary.totalMinutes)}</strong>
+          </article>
+          <article>
+            <span>Tasks</span>
+            <strong>${summary.totalTasks}</strong>
+          </article>
+          <article>
+            <span>Active</span>
+            <strong>${summary.activeDays}/7</strong>
+          </article>
+        </div>
+        <div class="home-stats-bars" aria-label="Last 7 days xp">
+          ${bars}
+        </div>
+      </div>
+      <div class="home-stats-footer ${momentumClass}">
+        <span>Momentum</span>
+        <strong>${formatPercentChange(summary.momentumChange)}</strong>
+        <small>${escapeHTML(topTypeText)}</small>
+      </div>
+    `,
+    "home-widget-wide home-widget-stats-card",
   );
 }
 
@@ -1286,14 +1657,20 @@ function createDayGridHomeWidget(occurrences) {
   const dayTasks = occurrences
     .filter((task) => task.occurrenceDate === todayISO && !task.skipped)
     .sort((first, second) => timeToMinutes(first.time) - timeToMinutes(second.time))
-    .slice(0, 7);
+    .slice(0, 12);
   const bounds = getMiniDayGridBounds(dayTasks);
   const range = Math.max(bounds.end - bounds.start, 60);
-  const labels = [bounds.start, Math.round((bounds.start + bounds.end) / 2), bounds.end]
-    .map((minute) => `<span>${formatTimeFromMinutes(minute)}</span>`)
+  const labels = getMiniDayGridLabelMinutes(bounds)
+    .map((minute) => {
+      const top = clamp(((minute - bounds.start) / range) * 100, 0, 100);
+      return `<span style="top: ${top}%">${formatTimeFromMinutes(minute)}</span>`;
+    })
     .join("");
-  const lines = [0, 25, 50, 75, 100]
-    .map((position) => `<i class="mini-grid-line" style="top: ${position}%"></i>`)
+  const lines = getMiniDayGridLabelMinutes(bounds)
+    .map((minute) => {
+      const top = clamp(((minute - bounds.start) / range) * 100, 0, 100);
+      return `<i class="mini-grid-line" style="top: ${top}%"></i>`;
+    })
     .join("");
   const tasksMarkup = dayTasks.length > 0
     ? dayTasks.map((task) => createMiniGridTask(task, bounds, range)).join("")
@@ -1302,7 +1679,7 @@ function createDayGridHomeWidget(occurrences) {
   return createHomeWidgetShell(
     "dayGrid",
     "Today grid",
-    "Compact schedule",
+    "Full day schedule",
     `
       <div class="mini-day-grid">
         <div class="mini-time-column">${labels}</div>
@@ -1317,13 +1694,24 @@ function createDayGridHomeWidget(occurrences) {
 }
 
 function getMiniDayGridBounds(dayTasks) {
-  if (dayTasks.length === 0) return { start: 8 * 60, end: 20 * 60 };
+  if (dayTasks.length === 0) return { start: 7 * 60, end: 22 * 60 };
 
   const taskStarts = dayTasks.map((task) => timeToMinutes(task.time));
   const taskEnds = dayTasks.map((task) => timeToMinutes(task.time) + getVisualTaskDuration(task));
-  const start = clamp(Math.floor((Math.min(...taskStarts) - 30) / 60) * 60, 0, 22 * 60);
-  const end = clamp(Math.ceil((Math.max(...taskEnds) + 30) / 60) * 60, start + 2 * 60, 24 * 60);
+  const start = clamp(Math.floor((Math.min(...taskStarts) - 60) / 60) * 60, 0, 22 * 60);
+  const end = clamp(Math.ceil((Math.max(...taskEnds) + 60) / 60) * 60, start + 6 * 60, 24 * 60);
   return { start, end };
+}
+
+function getMiniDayGridLabelMinutes(bounds) {
+  const range = bounds.end - bounds.start;
+  const step = range > 10 * 60 ? 120 : 60;
+  const labels = [];
+  for (let minute = bounds.start; minute <= bounds.end; minute += step) {
+    labels.push(minute);
+  }
+  if (labels.at(-1) !== bounds.end) labels.push(bounds.end);
+  return labels;
 }
 
 function createMiniGridTask(task, bounds, range) {
@@ -1342,6 +1730,7 @@ function createMiniGridTask(task, bounds, range) {
     <div class="${classes}" style="--mini-top: ${top}%; --mini-height: ${height}%; --type-color: ${typeStyle.color}; --type-bg: ${typeStyle.bg};">
       <span>${formatTimeFromMinutes(start)}</span>
       <strong>${escapeHTML(task.title)}</strong>
+      <small>${escapeHTML(task.type)}</small>
     </div>
   `;
 }
@@ -1477,29 +1866,89 @@ function getUpcomingOccurrences(occurrences) {
     );
 }
 
+function setupScheduleTaskForm() {
+  if (!taskForm || !scheduleHeader) return;
+  taskForm.classList.add("schedule-task-form");
+  taskForm.classList.remove("hidden");
+  scheduleHeader.insertAdjacentElement("afterend", taskForm);
+}
+
 function setTaskFormCollapsed(isCollapsed) {
   taskForm.classList.toggle("collapsed", isCollapsed);
-  if (taskFormToggle) {
-    taskFormToggle.setAttribute("aria-expanded", String(!isCollapsed));
-    taskFormToggle.setAttribute("aria-label", isCollapsed ? "Expand add task" : "Collapse add task");
-    taskFormToggle.title = isCollapsed ? "Expand" : "Collapse";
-    taskFormToggle.querySelector("span").textContent = isCollapsed ? "v" : "^";
+  if (taskFormHeader) {
+    taskFormHeader.setAttribute("aria-expanded", String(!isCollapsed));
+    taskFormHeader.setAttribute("title", isCollapsed ? "Open add task" : "Collapse add task");
   }
   localStorage.setItem(TASK_FORM_COLLAPSED_STORAGE_KEY, String(isCollapsed));
 }
 
 function toggleItemKindFields() {
   const isReminder = taskItemKindInput.value === "reminder";
+  if (!taskRepeatsInput.checked) {
+    taskRepeatModeInput.value = isReminder ? "interval" : "weekly";
+  }
   taskDurationField.classList.toggle("hidden", isReminder);
   taskDurationInput.toggleAttribute("required", !isReminder);
   taskTimeLabel.textContent = isReminder ? "Set time" : "Estimated start";
+  toggleRepeatControls();
 }
 
 function toggleEditItemKindFields() {
   const isReminder = editItemKindInput.value === "reminder";
+  if (!editTaskRepeatsInput.checked) {
+    editRepeatModeInput.value = isReminder ? "interval" : "weekly";
+  }
   editTaskDurationField.classList.toggle("hidden", isReminder);
   editTaskDurationInput.toggleAttribute("required", !isReminder);
   editTaskTimeLabel.textContent = isReminder ? "Set time" : "Estimated start";
+  toggleEditRepeatControls();
+}
+
+function toggleRepeatControls() {
+  const isReminder = taskItemKindInput.value === "reminder";
+  const repeats = taskRepeatsInput.checked;
+  const repeatMode = getTaskRepeatMode();
+
+  repeatToggleText.textContent = isReminder ? "Repeat this reminder" : "Repeat this task";
+  repeatModeField.classList.toggle("hidden", !repeats);
+  weekdayPicker.classList.toggle("hidden", !repeats);
+  repeatIntervalField.classList.toggle("hidden", !repeats || repeatMode !== "interval");
+  taskRepeatIntervalDaysInput.toggleAttribute("required", repeats && repeatMode === "interval");
+}
+
+function toggleEditRepeatControls() {
+  const isReminder = editItemKindInput.value === "reminder";
+  const repeats = editTaskRepeatsInput.checked;
+  const repeatMode = getEditRepeatMode();
+
+  editRepeatToggleText.textContent = isReminder ? "Repeat this reminder" : "Repeat this task";
+  editRepeatModeField.classList.toggle("hidden", !repeats);
+  editWeekdayPicker.classList.toggle("hidden", !repeats);
+  editRepeatIntervalField.classList.toggle("hidden", !repeats || repeatMode !== "interval");
+  editRepeatIntervalDaysInput.toggleAttribute("required", repeats && repeatMode === "interval");
+}
+
+function getTaskRepeatMode() {
+  return getRepeatModeForItemKind(taskItemKindInput.value, taskRepeatModeInput.value);
+}
+
+function getEditRepeatMode() {
+  return getRepeatModeForItemKind(editItemKindInput.value, editRepeatModeInput.value);
+}
+
+function getRepeatModeForItemKind(itemKind, repeatMode, fallback = "interval") {
+  if (repeatMode === "weekly" || repeatMode === "interval") return repeatMode;
+  return fallback === "weekly" ? "weekly" : "interval";
+}
+
+function normalizeRepeatIntervalDays(value) {
+  return clamp(Math.round(Number(value) || 2), 1, 365);
+}
+
+function normalizeRepeatDays(days) {
+  return Array.isArray(days)
+    ? [...new Set(days.map(Number).filter((day) => day >= 0 && day <= 6))].sort((a, b) => a - b)
+    : [];
 }
 
 function refreshTopStreakStatus() {
@@ -2264,6 +2713,8 @@ function openEditTask(taskId, occurrenceDate) {
   editTaskPriorityInput.value = normalizePriority(occurrence.priority);
   editTaskNotesInput.value = occurrence.notes ?? "";
   editTaskRepeatsInput.checked = Boolean(task.repeats);
+  editRepeatModeInput.value = getTaskRepeatModeValue(task);
+  editRepeatIntervalDaysInput.value = String(normalizeRepeatIntervalDays(task.repeatIntervalDays));
   setEditRepeatDays(task.repeats ? task.repeatDays : []);
   toggleEditItemKindFields();
 
@@ -2290,8 +2741,12 @@ function saveEditedTask(event) {
   const type = normalizeTaskTypeName(editTaskTypeInput.value);
   const duration = itemKind === "reminder" ? 0 : Number(editTaskDurationInput.value);
   const repeats = editTaskRepeatsInput.checked;
+  const repeatMode = repeats ? getRepeatModeForItemKind(itemKind, editRepeatModeInput.value) : "weekly";
   const repeatDays = repeats ? getEditRepeatDays() : [];
-  const nextRepeatDays = repeats && repeatDays.length === 0 ? [weekdayForISODate(date)] : repeatDays;
+  const repeatIntervalDays = repeats && repeatMode === "interval"
+    ? normalizeRepeatIntervalDays(editRepeatIntervalDaysInput.value)
+    : 1;
+  const nextRepeatDays = repeats && repeatMode === "weekly" && repeatDays.length === 0 ? [weekdayForISODate(date)] : repeatDays;
 
   if (!title || !date || !time || !type) return;
 
@@ -2309,6 +2764,8 @@ function saveEditedTask(event) {
       priority: normalizePriority(editTaskPriorityInput.value),
       notes: editTaskNotesInput.value.trim(),
       repeats,
+      repeatMode,
+      repeatIntervalDays,
       repeatDays: repeats ? nextRepeatDays : [],
       done: repeats ? false : task.repeats ? false : Boolean(task.done),
       skipped: repeats ? false : Boolean(task.skipped),
@@ -2344,7 +2801,7 @@ function getEditRepeatDays() {
 }
 
 function setEditRepeatDays(days) {
-  const selectedDays = new Set((Array.isArray(days) ? days : []).map(Number));
+  const selectedDays = new Set(normalizeRepeatDays(days));
   document.querySelectorAll('input[name="editRepeatDays"]').forEach((input) => {
     input.checked = selectedDays.has(Number(input.value));
   });
@@ -2405,7 +2862,7 @@ function createTaskCard(task) {
     minute: "2-digit",
   });
   const notes = task.notes ? `<p>${escapeHTML(task.notes)}</p>` : "";
-  const repeatLabel = task.repeats ? createRepeatLabel(task.repeatDays) : "One-time";
+  const repeatLabel = task.repeats ? createRepeatLabel(task) : "One-time";
   const priorityChip = createPriorityChip(task);
   const streakChip = createStreakChip(task.type);
   const typeStyle = createTypeStyleAttribute(task.type);
@@ -2476,7 +2933,7 @@ function createCompletedTaskCard(task) {
     minute: "2-digit",
   });
   const notes = task.notes ? `<p>${escapeHTML(task.notes)}</p>` : "";
-  const repeatLabel = task.repeats ? createRepeatLabel(task.repeatDays) : "One-time";
+  const repeatLabel = task.repeats ? createRepeatLabel(task) : "One-time";
   const points = calculatePoints(task);
   const completedMinutes = calculateCompletedMinutes(task);
   const priorityChip = createPriorityChip(task);
@@ -3103,6 +3560,8 @@ function applySelectedTaskTemplate() {
   taskNotesInput.value = template.notes ?? "";
   taskPriorityInput.value = normalizePriority(template.priority);
   taskRepeatsInput.checked = Boolean(template.repeats);
+  taskRepeatModeInput.value = getTaskRepeatModeValue(template);
+  taskRepeatIntervalDaysInput.value = String(normalizeRepeatIntervalDays(template.repeatIntervalDays));
   setRepeatDays(template.repeats ? template.repeatDays : []);
 
   if (template.type && !hasTaskType(BUILT_IN_TASK_TYPES, template.type) && !hasTaskType(customTaskTypes, template.type)) {
@@ -3125,6 +3584,8 @@ function saveCurrentTaskTemplate() {
     notes: formData.get("notes"),
     priority: formData.get("priority"),
     repeats: formData.get("repeats") === "on",
+    repeatMode: getRepeatModeForItemKind(formData.get("itemKind"), formData.get("repeatMode")),
+    repeatIntervalDays: formData.get("repeatIntervalDays"),
     repeatDays: getSelectedRepeatDays(),
   });
 
@@ -4268,6 +4729,8 @@ function resetForm() {
   taskTypeInput.value = BUILT_IN_TASK_TYPES[0];
   taskPriorityInput.value = "Medium";
   taskTemplateSelect.value = "";
+  taskRepeatModeInput.value = "weekly";
+  taskRepeatIntervalDaysInput.value = "2";
   customTaskTypeInput.value = "";
   toggleCustomTypeInput();
   toggleItemKindFields();
@@ -4286,14 +4749,34 @@ function setRepeatDayForDate(dateValue) {
   });
 }
 
+function setEditRepeatDayForDate(dateValue) {
+  const weekday = weekdayForISODate(dateValue);
+  document.querySelectorAll('input[name="editRepeatDays"]').forEach((input) => {
+    input.checked = Number(input.value) === weekday;
+  });
+}
+
 function setRepeatDays(days) {
-  const selectedDays = new Set((Array.isArray(days) ? days : []).map(Number));
+  const selectedDays = new Set(normalizeRepeatDays(days));
   document.querySelectorAll('input[name="repeatDays"]').forEach((input) => {
     input.checked = selectedDays.has(Number(input.value));
   });
 }
 
-function createRepeatLabel(repeatDays) {
+function createRepeatLabel(taskOrRepeatDays) {
+  if (!Array.isArray(taskOrRepeatDays) && getTaskRepeatModeValue(taskOrRepeatDays) === "interval") {
+    const interval = normalizeRepeatIntervalDays(taskOrRepeatDays.repeatIntervalDays);
+    const repeatDays = normalizeRepeatDays(taskOrRepeatDays.repeatDays);
+    const intervalLabel = interval === 1 ? "Every day" : `Every ${interval} days`;
+    const weeklyLabel = repeatDays.length > 0 && repeatDays.length < 7
+      ? ` + ${repeatDays.map((day) => DAY_NAMES[day]).join(", ")}`
+      : "";
+    return repeatDays.length === 7 ? "Every day" : `${intervalLabel}${weeklyLabel}`;
+  }
+
+  const repeatDays = Array.isArray(taskOrRepeatDays)
+    ? taskOrRepeatDays
+    : normalizeRepeatDays(taskOrRepeatDays?.repeatDays);
   if (!repeatDays.length) return "Weekly";
   if (repeatDays.length === 7) return "Every day";
   return `Weekly: ${repeatDays.map((day) => DAY_NAMES[day]).join(", ")}`;
@@ -5342,7 +5825,7 @@ function writeProfileCloudData(profileId, data) {
     profileId,
     Object.prototype.hasOwnProperty.call(data, "homeWidgets")
       ? normalizeHomeWidgets(data.homeWidgets)
-      : ["stats", "streak", "dayGrid"],
+      : DEFAULT_HOME_WIDGETS,
   );
   writeProfileJSON(
     HOME_WIDGET_LAYOUT_STORAGE_KEY,
@@ -5790,9 +6273,9 @@ function loadTaskTemplates() {
 function loadHomeWidgets() {
   try {
     const savedValue = localStorage.getItem(getProfileStorageKey(HOME_WIDGETS_STORAGE_KEY));
-    return savedValue === null ? ["stats", "streak", "dayGrid"] : normalizeHomeWidgets(JSON.parse(savedValue));
+    return savedValue === null ? DEFAULT_HOME_WIDGETS : normalizeHomeWidgets(JSON.parse(savedValue));
   } catch {
-    return ["stats", "streak", "dayGrid"];
+    return DEFAULT_HOME_WIDGETS;
   }
 }
 
@@ -5870,7 +6353,9 @@ function normalizeTasks(savedTasks) {
     duration: normalizeItemKind(task.itemKind) === "reminder" ? 0 : clamp(Number(task.duration) || 30, 15, 300),
     priority: normalizePriority(task.priority),
     repeats: Boolean(task.repeats),
-    repeatDays: Array.isArray(task.repeatDays) ? task.repeatDays.map(Number) : [],
+    repeatMode: getRepeatModeForItemKind(task.itemKind, task.repeatMode, "weekly"),
+    repeatIntervalDays: normalizeRepeatIntervalDays(task.repeatIntervalDays),
+    repeatDays: normalizeRepeatDays(task.repeatDays),
     completedDates: Array.isArray(task.completedDates) ? task.completedDates : [],
     skippedDates: Array.isArray(task.skippedDates) ? task.skippedDates : [],
     earnedPoints: Number.isFinite(Number(task.earnedPoints)) ? Math.round(Number(task.earnedPoints)) : null,
@@ -5902,7 +6387,9 @@ function normalizeTaskTemplate(template) {
     notes: String(template.notes ?? "").trim().slice(0, 400),
     priority: normalizePriority(template.priority),
     repeats: Boolean(template.repeats),
-    repeatDays: Array.isArray(template.repeatDays) ? template.repeatDays.map(Number).filter((day) => day >= 0 && day <= 6) : [],
+    repeatMode: getRepeatModeForItemKind(itemKind, template.repeatMode, "weekly"),
+    repeatIntervalDays: normalizeRepeatIntervalDays(template.repeatIntervalDays),
+    repeatDays: normalizeRepeatDays(template.repeatDays),
   };
 }
 
