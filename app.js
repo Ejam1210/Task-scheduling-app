@@ -15,6 +15,7 @@ const ACTIVE_PROFILE_STORAGE_KEY = "daily-task-scheduler.active-profile";
 const TASK_FORM_COLLAPSED_STORAGE_KEY = "daily-task-scheduler.task-form-collapsed";
 const HOME_WIDGETS_STORAGE_KEY = "daily-task-scheduler.home-widgets";
 const HOME_WIDGET_LAYOUT_STORAGE_KEY = "daily-task-scheduler.home-widget-layout";
+const STARTUP_QUOTE_STORAGE_KEY = "daily-task-scheduler.startup-quote";
 const SUPABASE_URL = "https://xaacjrtkzvphztifnywm.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhYWNqcnRrenZwaHp0aWZueXdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMDA4NzcsImV4cCI6MjA5NTg3Njg3N30.mTBCPN4JiVDWQVVxBXyFE67vJ3i8A4JoW8mpUO1wDfo";
 const CLOUD_DATA_TABLE = "scheduler_app_data";
@@ -67,8 +68,23 @@ const HOME_WIDGET_DEFINITIONS = [
 ];
 const DEFAULT_HOME_WIDGETS = ["dayGrid", "stats", "streak"];
 const HOME_WIDGET_RENDER_ORDER = ["dayGrid", "stats", "week", "streak", "xpGoal", "focus", "upcoming", "reminders", "typeMix"];
+const STARTUP_QUOTES = [
+  "Small plans. Big momentum.",
+  "Win the day in pieces.",
+  "One focused block at a time.",
+  "Turn plans into progress.",
+  "Keep the day moving.",
+  "Start clean. Finish proud.",
+  "Make time feel lighter.",
+  "Build the streak quietly.",
+  "Your day, lined up.",
+  "Do the next right thing.",
+  "A clear plan beats a busy mind.",
+  "Stack the small wins.",
+];
 
 const startupScreen = document.querySelector("#startupScreen");
+const startupQuote = document.querySelector("#startupQuote");
 const taskForm = document.querySelector("#taskForm");
 const taskList = document.querySelector("#taskList");
 const scheduleGrid = document.querySelector("#scheduleGrid");
@@ -399,6 +415,7 @@ todayLabel.textContent = today.toLocaleDateString(undefined, {
   month: "short",
   day: "numeric",
 });
+applyStartupQuote();
 saveCustomTaskTypes();
 renderProfileControls();
 renderTaskTypeOptions();
@@ -857,6 +874,19 @@ overlapAlert.addEventListener("click", (event) => {
 initializeCloudAuth();
 render();
 setInterval(refreshTopStreakStatus, 60 * 1000);
+
+function applyStartupQuote() {
+  if (!startupQuote || STARTUP_QUOTES.length === 0) return;
+
+  const previousQuote = localStorage.getItem(STARTUP_QUOTE_STORAGE_KEY);
+  const quoteOptions = STARTUP_QUOTES.length > 1
+    ? STARTUP_QUOTES.filter((quote) => quote !== previousQuote)
+    : STARTUP_QUOTES;
+  const nextQuote = quoteOptions[Math.floor(Math.random() * quoteOptions.length)];
+
+  startupQuote.textContent = nextQuote;
+  localStorage.setItem(STARTUP_QUOTE_STORAGE_KEY, nextQuote);
+}
 
 function switchTab(tabName) {
   closeNotificationPanel();

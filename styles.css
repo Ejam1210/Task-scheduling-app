@@ -122,8 +122,7 @@ body {
   animation: startup-mark-draw 1500ms ease both;
 }
 
-.startup-wordmark,
-.brand-wordmark {
+.startup-wordmark {
   font-family: "Arial Rounded MT Bold", "Avenir Next Rounded", "Nunito", var(--app-font);
   letter-spacing: 0;
 }
@@ -137,9 +136,11 @@ body {
 
 .startup-brand p {
   margin: 0;
+  max-width: min(320px, calc(100vw - 48px));
   color: var(--muted);
   font-size: 0.9rem;
   font-weight: 850;
+  text-align: center;
 }
 
 @keyframes startup-screen-out {
@@ -309,21 +310,10 @@ textarea {
   display: inline-flex;
   align-items: center;
   color: var(--ink);
+  font-family: var(--app-font);
   font-weight: 950;
+  letter-spacing: 0;
   text-rendering: geometricPrecision;
-}
-
-.brand-wordmark::before {
-  width: 0.46em;
-  height: 0.46em;
-  margin-right: 0.22em;
-  border-radius: 38% 62% 46% 54%;
-  background: var(--green);
-  box-shadow:
-    0 0 0 4px var(--accent-faint),
-    0 0 22px var(--accent-soft);
-  content: "";
-  transform: translateY(0.02em) rotate(-10deg);
 }
 
 .brand-wordmark-text {
