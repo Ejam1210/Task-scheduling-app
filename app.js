@@ -18,6 +18,8 @@ const HOME_WIDGET_LAYOUT_STORAGE_KEY = "daily-task-scheduler.home-widget-layout"
 const SUPABASE_URL = "https://xaacjrtkzvphztifnywm.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhYWNqcnRrenZwaHp0aWZueXdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMDA4NzcsImV4cCI6MjA5NTg3Njg3N30.mTBCPN4JiVDWQVVxBXyFE67vJ3i8A4JoW8mpUO1wDfo";
 const CLOUD_DATA_TABLE = "scheduler_app_data";
+const TASK_INVITES_TABLE = "scheduler_task_invites";
+const USER_DIRECTORY_TABLE = "scheduler_user_profiles";
 const PROFILE_SCOPED_STORAGE_KEYS = [
   STORAGE_KEY,
   TYPE_STORAGE_KEY,
@@ -45,6 +47,7 @@ const TASK_SWIPE_DELETE_DISTANCE = 96;
 const STREAK_MINUTES_TO_KEEP = 10;
 const TASK_REMINDER_INTERVAL_MS = 30 * 1000;
 const TASK_REMINDER_GRACE_MS = 2 * 60 * 1000;
+const TASK_NOTIFICATION_WINDOW_MS = 10 * 60 * 1000;
 const HOME_WIDGET_SNAP_SIZE = 24;
 const HOME_WIDGET_ROW_HEIGHT = 168;
 const HOME_WIDGET_DESKTOP_QUERY = "(min-width: 761px) and (pointer: fine)";
@@ -65,6 +68,7 @@ const HOME_WIDGET_DEFINITIONS = [
 const DEFAULT_HOME_WIDGETS = ["dayGrid", "stats", "streak"];
 const HOME_WIDGET_RENDER_ORDER = ["dayGrid", "stats", "week", "streak", "xpGoal", "focus", "upcoming", "reminders", "typeMix"];
 
+const startupScreen = document.querySelector("#startupScreen");
 const taskForm = document.querySelector("#taskForm");
 const taskList = document.querySelector("#taskList");
 const scheduleGrid = document.querySelector("#scheduleGrid");
@@ -132,6 +136,7 @@ const customTaskTypeInput = document.querySelector("#customTaskType");
 const taskPriorityInput = document.querySelector("#taskPriority");
 const priorityField = document.querySelector("#priorityField");
 const taskNotesInput = document.querySelector("#taskNotes");
+const taskInviteEmailsInput = document.querySelector("#taskInviteEmails");
 const taskTemplateSelect = document.querySelector("#taskTemplate");
 const saveTemplateButton = document.querySelector("#saveTemplateButton");
 const taskFormHeader = document.querySelector("#taskFormHeader");
@@ -168,6 +173,12 @@ const cloudStatus = document.querySelector("#cloudStatus");
 const loadCloudButton = document.querySelector("#loadCloudButton");
 const syncNowButton = document.querySelector("#syncNowButton");
 const logoutButton = document.querySelector("#logoutButton");
+const shedulrNameForm = document.querySelector("#shedulrNameForm");
+const shedulrNameInput = document.querySelector("#shedulrNameInput");
+const shedulrNameStatus = document.querySelector("#shedulrNameStatus");
+const inviteInbox = document.querySelector("#inviteInbox");
+const inviteList = document.querySelector("#inviteList");
+const refreshInvitesButton = document.querySelector("#refreshInvitesButton");
 const menuButton = document.querySelector("#menuButton");
 const closeMenuButton = document.querySelector("#closeMenuButton");
 const sideMenu = document.querySelector("#sideMenu");
@@ -185,6 +196,11 @@ const assistantPromptInput = document.querySelector("#assistantPrompt");
 const assistantResponse = document.querySelector("#assistantResponse");
 const assistantVoiceButton = document.querySelector("#assistantVoiceButton");
 const assistantPromptButtons = document.querySelectorAll("[data-assistant-prompt]");
+const notificationButton = document.querySelector("#notificationButton");
+const notificationBadge = document.querySelector("#notificationBadge");
+const notificationPanel = document.querySelector("#notificationPanel");
+const notificationList = document.querySelector("#notificationList");
+const closeNotificationPanelButton = document.querySelector("#closeNotificationPanel");
 const homeWidgetAddButton = document.querySelector("#homeWidgetAddButton");
 const homeWidgetPicker = document.querySelector("#homeWidgetPicker");
 const homeWidgetControls = document.querySelector("#homeWidgetControls");
@@ -203,6 +219,7 @@ const editTaskDurationField = document.querySelector("#editTaskDurationField");
 const editTaskTypeInput = document.querySelector("#editTaskType");
 const editTaskPriorityInput = document.querySelector("#editTaskPriority");
 const editTaskNotesInput = document.querySelector("#editTaskNotes");
+const editTaskInviteEmailsInput = document.querySelector("#editTaskInviteEmails");
 const editTaskRepeatsInput = document.querySelector("#editTaskRepeats");
 const editRepeatToggleText = document.querySelector("#editRepeatToggleText");
 const editRepeatModeField = document.querySelector("#editRepeatModeField");
@@ -265,6 +282,10 @@ let taskFormCollapsedPreference = localStorage.getItem(TASK_FORM_COLLAPSED_STORA
 let displayedTodayXp = null;
 let pendingXpAnimation = null;
 let homeWidgetDragState = null;
+let taskInvites = [];
+let isLoadingTaskInvites = false;
+let cloudDirectoryProfile = null;
+let isSavingShedulrName = false;
 
 const TASK_TYPE_STYLES = {
   Focus: { color: "#2d6f9f", bg: "rgba(45, 111, 159, 0.14)" },
@@ -530,6 +551,9 @@ homeWidgetGrid?.addEventListener("pointercancel", cancelHomeWidgetDrag);
 homeWidgetGrid?.addEventListener("lostpointercapture", cancelHomeWidgetDrag);
 window.addEventListener("resize", applyHomeWidgetLayout);
 document.addEventListener("click", handleHomeWidgetOutsideClick);
+window.addEventListener("load", () => {
+  window.setTimeout(() => startupScreen?.remove(), 2300);
+});
 profileButton.addEventListener("click", openProfileMenu);
 closeProfileButton.addEventListener("click", closeProfileMenu);
 editProfileButton.addEventListener("click", openProfileEditor);
@@ -544,10 +568,17 @@ signupButton.addEventListener("click", signUpWithEmail);
 loadCloudButton.addEventListener("click", loadCloudData);
 syncNowButton.addEventListener("click", saveCloudDataNow);
 logoutButton.addEventListener("click", signOut);
+shedulrNameForm?.addEventListener("submit", saveShedulrName);
+refreshInvitesButton?.addEventListener("click", loadTaskInvites);
+inviteList?.addEventListener("click", handleInviteAction);
 menuButton.addEventListener("click", openMenu);
 closeMenuButton.addEventListener("click", closeMenu);
 drawerOverlay.addEventListener("click", closeAllMenus);
 assistantButton?.addEventListener("click", openAssistant);
+notificationButton?.addEventListener("click", toggleNotificationPanel);
+closeNotificationPanelButton?.addEventListener("click", closeNotificationPanel);
+notificationPanel?.addEventListener("click", handleNotificationAction);
+document.addEventListener("click", closeNotificationPanelFromOutside);
 closeAssistantButton?.addEventListener("click", closeAssistant);
 assistantOverlay?.addEventListener("click", (event) => {
   if (event.target === assistantOverlay) closeAssistant();
@@ -582,6 +613,8 @@ taskForm.addEventListener("submit", (event) => {
   const startDate = formData.get("date");
   const taskType = getSubmittedTaskType(formData);
   const itemKind = normalizeItemKind(formData.get("itemKind"));
+  const inviteRecipients = parseInviteRecipients(formData.get("inviteEmails"));
+  const inviteEmails = parseInviteEmails(inviteRecipients);
   const repeatMode = repeats ? getRepeatModeForItemKind(itemKind, formData.get("repeatMode")) : "weekly";
   const selectedRepeatDays = repeats ? getSelectedRepeatDays() : [];
   const repeatIntervalDays = repeats && repeatMode === "interval"
@@ -602,6 +635,9 @@ taskForm.addEventListener("submit", (event) => {
     repeatIntervalDays,
     repeatDays: repeats ? selectedRepeatDays : [],
     completedDates: [],
+    inviteEmails,
+    inviteLabels: inviteRecipients,
+    sentInviteEmails: [],
     done: false,
     createdAt: new Date().toISOString(),
   };
@@ -623,6 +659,7 @@ taskForm.addEventListener("submit", (event) => {
   render();
   taskFormCollapsedPreference = true;
   setTaskFormCollapsed(true);
+  void sendTaskInvites(task.id, inviteRecipients);
 });
 
 taskList.addEventListener("click", handleTaskAction);
@@ -822,6 +859,7 @@ render();
 setInterval(refreshTopStreakStatus, 60 * 1000);
 
 function switchTab(tabName) {
+  closeNotificationPanel();
   document.querySelectorAll(".tab-button").forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === tabName);
   });
@@ -855,6 +893,7 @@ function render() {
   renderFocusOverlay(occurrences);
   applyFeatureVisibility();
   reminderOccurrences = occurrences;
+  renderNotifications(occurrences);
   ensureTaskReminderInterval();
   checkTaskReminders(occurrences);
 
@@ -2977,6 +3016,7 @@ function openEditTask(taskId, occurrenceDate) {
   editTaskTypeInput.value = occurrence.type;
   editTaskPriorityInput.value = normalizePriority(occurrence.priority);
   editTaskNotesInput.value = occurrence.notes ?? "";
+  editTaskInviteEmailsInput.value = getTaskInviteFieldValue(task);
   editTaskRepeatsInput.checked = Boolean(task.repeats);
   editRepeatModeInput.value = getTaskRepeatModeValue(task);
   editRepeatIntervalDaysInput.value = String(normalizeRepeatIntervalDays(task.repeatIntervalDays));
@@ -3005,6 +3045,8 @@ function saveEditedTask(event) {
   const itemKind = normalizeItemKind(editItemKindInput.value);
   const type = normalizeTaskTypeName(editTaskTypeInput.value);
   const duration = itemKind === "reminder" ? 0 : Number(editTaskDurationInput.value);
+  const inviteRecipients = parseInviteRecipients(editTaskInviteEmailsInput.value);
+  const inviteEmails = parseInviteEmails(inviteRecipients);
   const repeats = editTaskRepeatsInput.checked;
   const repeatMode = repeats ? getRepeatModeForItemKind(itemKind, editRepeatModeInput.value) : "weekly";
   const repeatDays = repeats ? getEditRepeatDays() : [];
@@ -3028,6 +3070,9 @@ function saveEditedTask(event) {
       type,
       priority: normalizePriority(editTaskPriorityInput.value),
       notes: editTaskNotesInput.value.trim(),
+      inviteEmails,
+      inviteLabels: inviteRecipients,
+      sentInviteEmails: normalizeInviteEmails(task.sentInviteEmails),
       repeats,
       repeatMode,
       repeatIntervalDays,
@@ -3057,6 +3102,7 @@ function saveEditedTask(event) {
   saveTasks();
   closeEditTask();
   render();
+  void sendTaskInvites(taskId, inviteRecipients);
 }
 
 function getEditRepeatDays() {
@@ -5079,6 +5125,7 @@ function resetForm() {
   taskRepeatModeInput.value = "weekly";
   taskRepeatIntervalDaysInput.value = "2";
   customTaskTypeInput.value = "";
+  taskInviteEmailsInput.value = "";
   toggleCustomTypeInput();
   toggleItemKindFields();
 }
@@ -5346,8 +5393,121 @@ function sendTaskReminder(task) {
   showAppToast(title, body);
 }
 
+function toggleNotificationPanel(event) {
+  event?.stopPropagation();
+  const shouldOpen = notificationPanel?.classList.contains("hidden");
+  setNotificationPanelOpen(Boolean(shouldOpen));
+}
+
+function closeNotificationPanel() {
+  setNotificationPanelOpen(false);
+}
+
+function closeNotificationPanelFromOutside(event) {
+  if (notificationPanel?.classList.contains("hidden")) return;
+  if (notificationPanel?.contains(event.target) || notificationButton?.contains(event.target)) return;
+  closeNotificationPanel();
+}
+
+function setNotificationPanelOpen(isOpen) {
+  if (!notificationPanel || !notificationButton) return;
+
+  notificationPanel.classList.toggle("hidden", !isOpen);
+  notificationButton.setAttribute("aria-expanded", String(isOpen));
+  if (isOpen) renderNotifications(reminderOccurrences);
+}
+
+function handleNotificationAction(event) {
+  const button = event.target.closest("[data-notification-action]");
+  if (!button) return;
+
+  if (button.dataset.notificationAction === "profile") {
+    closeNotificationPanel();
+    openProfileMenu();
+    void loadTaskInvites();
+  }
+
+  if (button.dataset.notificationAction === "schedule") {
+    closeNotificationPanel();
+    switchTab("schedule");
+  }
+}
+
+function renderNotifications(occurrences = reminderOccurrences) {
+  const dueTasks = getDueNotificationTasks(occurrences);
+  const inviteCount = cloudUser ? taskInvites.length : 0;
+  const notificationCount = inviteCount + dueTasks.length;
+
+  if (notificationBadge) {
+    notificationBadge.textContent = notificationCount > 9 ? "9+" : String(notificationCount);
+    notificationBadge.classList.toggle("hidden", notificationCount === 0);
+  }
+
+  notificationButton?.classList.toggle("has-notifications", notificationCount > 0);
+
+  if (!notificationList) return;
+
+  const inviteRows = cloudUser && taskInvites.length > 0
+    ? taskInvites.slice(0, 3).map(createInviteNotificationRow)
+    : [];
+  const taskRows = dueTasks.slice(0, 3).map(createTaskNotificationRow);
+
+  if (inviteRows.length === 0 && taskRows.length === 0) {
+    notificationList.innerHTML = `
+      <div class="notification-empty">
+        <strong>All clear</strong>
+        <span>No invites or due tasks right now.</span>
+      </div>
+    `;
+    return;
+  }
+
+  notificationList.innerHTML = [...inviteRows, ...taskRows].join("");
+}
+
+function createInviteNotificationRow(invite) {
+  const preview = createInvitePreview(invite);
+  return `
+    <button class="notification-row" data-notification-action="profile" type="button">
+      <span class="notification-dot"></span>
+      <span>
+        <strong>${escapeHTML(preview.title)}</strong>
+        <small>Invite from ${escapeHTML(preview.inviterName || preview.inviterEmail || "someone")}</small>
+      </span>
+    </button>
+  `;
+}
+
+function createTaskNotificationRow(task) {
+  return `
+    <button class="notification-row" data-notification-action="schedule" type="button">
+      <span class="notification-dot task-dot"></span>
+      <span>
+        <strong>${escapeHTML(task.title)}</strong>
+        <small>Due now: ${escapeHTML(formatTimeRange(task))}</small>
+      </span>
+    </button>
+  `;
+}
+
+function getDueNotificationTasks(occurrences = reminderOccurrences) {
+  const now = new Date();
+  const currentDate = toDateInputValue(now);
+  const tasksToCheck = occurrences.length > 0 ? occurrences : buildScheduleOccurrences();
+
+  return tasksToCheck
+    .filter((task) => task.occurrenceDate === currentDate && !task.done && !task.skipped)
+    .filter((task) => {
+      const taskDateTime = new Date(`${task.occurrenceDate}T${task.time}`);
+      const msFromTaskTime = now - taskDateTime;
+      return msFromTaskTime >= 0 && msFromTaskTime <= TASK_NOTIFICATION_WINDOW_MS;
+    })
+    .sort((first, second) => timeToMinutes(first.time) - timeToMinutes(second.time));
+}
+
 function openAssistant() {
   closeAllMenus();
+  closeNotificationPanel();
   assistantOverlay?.classList.remove("hidden");
   assistantOverlay?.setAttribute("aria-hidden", "false");
   updateAssistantVoiceAvailability();
@@ -5362,22 +5522,35 @@ function closeAssistant() {
 
 function handleAssistantSubmit(event) {
   event.preventDefault();
-  answerAssistantPrompt(assistantPromptInput.value);
+  answerAssistantPrompt(assistantPromptInput?.value ?? "");
 }
 
 function answerAssistantPrompt(prompt) {
-  const normalizedPrompt = String(prompt ?? "").trim();
-  if (!normalizedPrompt) {
-    renderAssistantResponse({
-      title: "Ask me anything about your schedule.",
-      intro: "Try asking about overload, free time, study blocks, overlaps, xp, or how to make today easier.",
-      bullets: [],
-    });
-    return;
-  }
+  try {
+    const normalizedPrompt = String(prompt ?? "").trim();
+    if (!normalizedPrompt) {
+      renderAssistantResponse({
+        title: "Ask me anything about your schedule.",
+        intro: "Try asking about overload, free time, study blocks, overlaps, xp, invites, or how to make today easier.",
+        bullets: ["This assistant works locally from your schedule data; it is not connected to an online AI model yet."],
+      });
+      return;
+    }
 
-  const advice = createAssistantAdvice(normalizedPrompt);
-  renderAssistantResponse(advice);
+    if (assistantPromptInput) assistantPromptInput.value = normalizedPrompt;
+    const advice = createAssistantAdvice(normalizedPrompt);
+    renderAssistantResponse(advice);
+  } catch (error) {
+    console.error(error);
+    renderAssistantResponse({
+      title: "I hit a local assistant error.",
+      intro: "The assistant is available, but this prompt caused a local schedule check to fail.",
+      bullets: [
+        "Try asking about today, this week, free time, overlaps, xp, or invites.",
+        "This is an on-device helper right now, not a live ChatGPT connection.",
+      ],
+    });
+  }
 }
 
 function renderAssistantResponse({ title, intro, bullets }) {
@@ -5418,6 +5591,14 @@ function createAssistantAdvice(prompt) {
 
   if (lowerPrompt.includes("xp") || lowerPrompt.includes("point") || lowerPrompt.includes("streak")) {
     return createXpAdvice(scope, completedTasks, completedMinutes, points);
+  }
+
+  if (lowerPrompt.includes("invite") || lowerPrompt.includes("person") || lowerPrompt.includes("people") || lowerPrompt.includes("friend") || lowerPrompt.includes("name")) {
+    return createInviteAdvice();
+  }
+
+  if (lowerPrompt.includes("ai") || lowerPrompt.includes("assistant") || lowerPrompt.includes("unavailable") || lowerPrompt.includes("not work")) {
+    return createAssistantStatusAdvice();
   }
 
   if (lowerPrompt.includes("free") || lowerPrompt.includes("gap") || lowerPrompt.includes("when")) {
@@ -5586,6 +5767,30 @@ function createGeneralScheduleAdvice(scope, activeTasks, overlaps, totalMinutes,
     title: "Here is how I would tune it.",
     intro: "I looked at workload, overlaps, completed xp, and task spacing.",
     bullets,
+  };
+}
+
+function createInviteAdvice() {
+  return {
+    title: "Invites can use email or a Shedulr name.",
+    intro: "Open your profile menu, log in, and save your public Shedulr name. Then friends can type that name in the invite field.",
+    bullets: [
+      "Names are checked through Supabase, so both people need Cloud Login set up.",
+      "Use commas if you invite more than one person.",
+      "If a name is not found, use their email or ask them to save their Shedulr name first.",
+    ],
+  };
+}
+
+function createAssistantStatusAdvice() {
+  return {
+    title: "The assistant is available as a local helper.",
+    intro: "It reads your saved schedule and gives rule-based planning advice inside the app.",
+    bullets: [
+      "It can check overload, free time, study windows, overlaps, xp, streaks, and invites.",
+      "It is not connected to an online AI model yet, so broad chat questions will be limited.",
+      "Voice input depends on browser speech recognition and may not work in every browser.",
+    ],
   };
 }
 
@@ -5831,6 +6036,7 @@ function closeMenu(shouldCloseOverlay = true) {
 function closeAllMenus() {
   closeMenu(false);
   closeProfileMenu(false);
+  closeNotificationPanel();
   drawerOverlay.classList.remove("open");
 }
 
@@ -5852,7 +6058,9 @@ async function initializeCloudAuth() {
   cloudUser = data.session?.user ?? null;
   updateAuthUI();
   if (cloudUser) {
+    await loadShedulrDirectoryProfile();
     await loadCloudData();
+    await loadTaskInvites();
   }
 
   supabaseClient.auth.onAuthStateChange(async (_event, session) => {
@@ -5862,7 +6070,14 @@ async function initializeCloudAuth() {
     updateAuthUI();
 
     if (cloudUser && userChanged) {
+      await loadShedulrDirectoryProfile();
       await loadCloudData();
+      await loadTaskInvites();
+    } else if (!cloudUser) {
+      cloudDirectoryProfile = null;
+      taskInvites = [];
+      renderShedulrNameControls();
+      renderTaskInvites();
     }
   });
 }
@@ -5883,7 +6098,9 @@ async function signInWithEmail(event) {
 
   cloudUser = data.user;
   updateAuthUI();
+  await loadShedulrDirectoryProfile();
   await loadCloudData();
+  await loadTaskInvites();
 }
 
 async function signUpWithEmail() {
@@ -5902,7 +6119,9 @@ async function signUpWithEmail() {
   if (data.session?.user) {
     cloudUser = data.session.user;
     updateAuthUI();
+    await loadShedulrDirectoryProfile();
     await saveCloudDataNow();
+    await loadTaskInvites();
     return;
   }
 
@@ -5916,7 +6135,11 @@ async function signOut() {
   await supabaseClient.auth.signOut();
   cloudUser = null;
   lastCloudSaveSnapshot = "";
+  cloudDirectoryProfile = null;
+  taskInvites = [];
   updateAuthUI();
+  renderShedulrNameControls();
+  renderTaskInvites();
 }
 
 function getAuthCredentials() {
@@ -5941,6 +6164,8 @@ function updateAuthUI() {
   const signedIn = Boolean(cloudUser);
   authForm.classList.toggle("hidden", signedIn);
   authSession.classList.toggle("hidden", !signedIn);
+  shedulrNameForm?.classList.toggle("hidden", !signedIn);
+  inviteInbox?.classList.toggle("hidden", !signedIn);
   authUserLabel.textContent = cloudUser?.email ?? "Signed in";
 
   if (signedIn) {
@@ -6054,6 +6279,8 @@ async function saveCloudDataNow() {
 function setCloudButtonsBusy(isBusy) {
   loadCloudButton.disabled = isBusy;
   syncNowButton.disabled = isBusy;
+  if (shedulrNameForm) shedulrNameForm.querySelector("button")?.toggleAttribute("disabled", isBusy || isSavingShedulrName);
+  if (refreshInvitesButton) refreshInvitesButton.disabled = isBusy || isLoadingTaskInvites;
 }
 
 function getCloudErrorMessage(error, action) {
@@ -6071,6 +6298,590 @@ function getCloudErrorMessage(error, action) {
   }
 
   return `Could not ${action} yet: ${message || "check your Supabase setup and internet connection."}`;
+}
+
+async function loadShedulrDirectoryProfile() {
+  if (!supabaseClient || !cloudUser) {
+    cloudDirectoryProfile = null;
+    renderShedulrNameControls();
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from(USER_DIRECTORY_TABLE)
+    .select("display_name, handle, email")
+    .eq("user_id", cloudUser.id)
+    .maybeSingle();
+
+  if (error) {
+    const message = getDirectoryErrorMessage(error, "load your Shedulr name");
+    setShedulrNameStatus(message);
+    return;
+  }
+
+  if (data) {
+    cloudDirectoryProfile = normalizeDirectoryProfile(data);
+    localStorage.setItem(getShedulrNameStorageKey(), cloudDirectoryProfile.displayName);
+    renderShedulrNameControls();
+    return;
+  }
+
+  const activeProfileName = normalizeProfileName(getActiveProfile()?.name);
+  const emailName = String(cloudUser.email ?? "").split("@")[0];
+  const fallbackName = normalizeShedulrDisplayName(
+    localStorage.getItem(getShedulrNameStorageKey())
+    || (activeProfileName && activeProfileName !== "My Profile" ? activeProfileName : "")
+    || emailName,
+  );
+  await upsertShedulrDirectoryProfile(fallbackName, { silent: true });
+}
+
+async function saveShedulrName(event) {
+  event.preventDefault();
+  const name = normalizeShedulrDisplayName(shedulrNameInput?.value);
+
+  if (name.length < 2) {
+    setShedulrNameStatus("Use at least 2 characters for your Shedulr name.");
+    shedulrNameInput?.focus();
+    return;
+  }
+
+  await upsertShedulrDirectoryProfile(name);
+}
+
+async function upsertShedulrDirectoryProfile(name, options = {}) {
+  if (!supabaseClient || !cloudUser) {
+    setShedulrNameStatus("Log in first to save your Shedulr name.");
+    return false;
+  }
+
+  const displayName = normalizeShedulrDisplayName(name);
+  const handle = createShedulrHandle(displayName);
+  if (!displayName || !handle) return false;
+
+  isSavingShedulrName = true;
+  setCloudButtonsBusy(true);
+  setShedulrNameStatus("Saving Shedulr name...");
+
+  const { error } = await supabaseClient
+    .from(USER_DIRECTORY_TABLE)
+    .upsert(
+      {
+        user_id: cloudUser.id,
+        email: normalizeEmail(cloudUser.email),
+        display_name: displayName,
+        handle,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
+
+  isSavingShedulrName = false;
+  setCloudButtonsBusy(false);
+
+  if (error) {
+    const message = getDirectoryErrorMessage(error, "save your Shedulr name");
+    setShedulrNameStatus(message);
+    if (!options.silent) showAppToast("Name not saved", message);
+    console.error(error);
+    return false;
+  }
+
+  cloudDirectoryProfile = { displayName, handle, email: normalizeEmail(cloudUser.email) };
+  localStorage.setItem(getShedulrNameStorageKey(), displayName);
+  renderShedulrNameControls();
+  if (!options.silent) {
+    showAppToast("Shedulr name saved", `People can invite you as ${displayName}.`);
+  }
+  return true;
+}
+
+function renderShedulrNameControls() {
+  if (!shedulrNameInput) return;
+
+  const fallbackName = normalizeShedulrDisplayName(
+    cloudDirectoryProfile?.displayName
+    || localStorage.getItem(getShedulrNameStorageKey())
+    || getActiveProfile()?.name
+    || "",
+  );
+  shedulrNameInput.value = fallbackName;
+
+  if (!cloudUser) {
+    setShedulrNameStatus("Log in to save a public Shedulr name.");
+    return;
+  }
+
+  const handle = cloudDirectoryProfile?.handle || createShedulrHandle(fallbackName);
+  setShedulrNameStatus(handle
+    ? `People can invite you with "${fallbackName}" or @${handle}.`
+    : "People can invite you with this name or your email.");
+}
+
+function setShedulrNameStatus(message) {
+  if (shedulrNameStatus) shedulrNameStatus.textContent = message;
+}
+
+function getShedulrNameStorageKey() {
+  return `daily-task-scheduler.shedulr-name.${cloudUser?.id ?? "local"}`;
+}
+
+function normalizeDirectoryProfile(data) {
+  return {
+    displayName: normalizeShedulrDisplayName(data?.display_name),
+    handle: createShedulrHandle(data?.handle || data?.display_name),
+    email: normalizeEmail(data?.email),
+  };
+}
+
+function normalizeShedulrDisplayName(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 32);
+}
+
+function createShedulrHandle(value) {
+  return normalizeShedulrDisplayName(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32);
+}
+
+function getDirectoryErrorMessage(error, action) {
+  const message = String(error?.message ?? "");
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes("relation") || lowerMessage.includes("does not exist")) {
+    return "Shedulr name lookup is missing. Run the updated supabase-setup.sql in Supabase SQL Editor.";
+  }
+
+  if (lowerMessage.includes("duplicate") || lowerMessage.includes("unique")) {
+    return "That Shedulr name is already taken. Try adding a number or another word.";
+  }
+
+  if (lowerMessage.includes("row-level security") || lowerMessage.includes("permission")) {
+    return "Supabase security rules are blocking names. Run the updated supabase-setup.sql again.";
+  }
+
+  return `Could not ${action}: ${message || "check your Supabase setup and internet connection."}`;
+}
+
+async function sendTaskInvites(taskId, rawRecipients) {
+  const recipientLabels = parseInviteRecipients(rawRecipients);
+  if (recipientLabels.length === 0) return;
+
+  const task = tasks.find((savedTask) => savedTask.id === taskId);
+  if (!task) return;
+
+  if (!supabaseClient || !cloudUser) {
+    showAppToast("Sign in to invite", "The task was saved, but invites need Cloud Login first.");
+    setCloudStatus("Log in first, then edit the task to send invites.");
+    return;
+  }
+
+  let resolvedRecipients;
+  try {
+    resolvedRecipients = await resolveInviteRecipients(recipientLabels);
+  } catch (error) {
+    const message = getDirectoryErrorMessage(error, "look up that Shedulr name");
+    setCloudStatus(message);
+    showAppToast("Invite not sent", message);
+    console.error(error);
+    return;
+  }
+
+  if (resolvedRecipients.missing.length > 0) {
+    showAppToast("Name not found", `${resolvedRecipients.missing.join(", ")} could not be found. Try their email or ask them to save their Shedulr name.`);
+  }
+
+  if (resolvedRecipients.ambiguous.length > 0) {
+    showAppToast("Name needs detail", `${resolvedRecipients.ambiguous.join(", ")} matches more than one person. Use their @name or email.`);
+  }
+
+  const emails = resolvedRecipients.emails;
+  if (emails.length === 0) return;
+
+  const selfEmail = normalizeEmail(cloudUser.email);
+  const sentEmails = normalizeInviteEmails(task.sentInviteEmails);
+  const inviteEmails = emails.filter((email) => email !== selfEmail && !sentEmails.includes(email));
+
+  if (inviteEmails.length === 0) {
+    if (emails.includes(selfEmail)) {
+      showAppToast("Invite skipped", "You are already using this account.");
+    }
+    return;
+  }
+
+  const taskPayload = createTaskInvitePayload(task);
+  const inviterEmail = selfEmail || String(cloudUser.email ?? "").trim();
+  const inviterName = cloudDirectoryProfile?.displayName || getActiveProfile()?.name || inviterEmail;
+  const rows = inviteEmails.map((email) => ({
+    inviter_id: cloudUser.id,
+    inviter_email: inviterEmail,
+    inviter_name: inviterName,
+    invitee_email: email,
+    task_payload: taskPayload,
+    status: "pending",
+  }));
+
+  const { error } = await supabaseClient
+    .from(TASK_INVITES_TABLE)
+    .insert(rows);
+
+  if (error) {
+    const message = getInviteErrorMessage(error, "send invites");
+    setCloudStatus(message);
+    showAppToast("Invite not sent", message);
+    console.error(error);
+    return;
+  }
+
+  tasks = tasks.map((savedTask) => {
+    if (savedTask.id !== taskId) return savedTask;
+
+    return {
+      ...savedTask,
+      inviteEmails: normalizeInviteEmails([...normalizeInviteEmails(savedTask.inviteEmails), ...emails]),
+      inviteLabels: recipientLabels,
+      sentInviteEmails: normalizeInviteEmails([...sentEmails, ...inviteEmails]),
+    };
+  });
+
+  saveTasks();
+  render();
+  showAppToast("Invite sent", inviteEmails.length === 1 ? `Sent to ${inviteEmails[0]}.` : `Sent ${inviteEmails.length} invites.`);
+  setCloudStatus("Invite sent. They can accept it after logging in with that email.");
+}
+
+async function resolveInviteRecipients(rawRecipients) {
+  const labels = parseInviteRecipients(rawRecipients);
+  const directEmails = [];
+  const nameLabels = [];
+
+  labels.forEach((label) => {
+    if (isLikelyEmail(label)) {
+      directEmails.push(label);
+    } else {
+      nameLabels.push(label);
+    }
+  });
+
+  const resolvedEmails = [];
+  const missing = [];
+  const ambiguous = [];
+
+  for (const name of nameLabels) {
+    const match = await lookupShedulrDirectoryRecipient(name);
+    if (match?.ambiguous) {
+      ambiguous.push(name);
+    } else if (match?.email) {
+      resolvedEmails.push(match.email);
+    } else {
+      missing.push(name);
+    }
+  }
+
+  return {
+    emails: normalizeInviteEmails([...directEmails, ...resolvedEmails]),
+    missing,
+    ambiguous,
+  };
+}
+
+async function lookupShedulrDirectoryRecipient(name) {
+  if (!supabaseClient || !cloudUser) return null;
+
+  const displayName = normalizeShedulrDisplayName(name).replace(/^@/, "");
+  const handle = createShedulrHandle(displayName);
+  if (!displayName || !handle) return null;
+
+  const byHandle = await supabaseClient
+    .from(USER_DIRECTORY_TABLE)
+    .select("email, display_name, handle")
+    .eq("handle", handle)
+    .limit(2);
+
+  if (byHandle.error) throw byHandle.error;
+  if (byHandle.data?.length === 1) {
+    return normalizeDirectoryProfile(byHandle.data[0]);
+  }
+
+  const byName = await supabaseClient
+    .from(USER_DIRECTORY_TABLE)
+    .select("email, display_name, handle")
+    .ilike("display_name", displayName)
+    .limit(3);
+
+  if (byName.error) throw byName.error;
+  if ((byName.data ?? []).length === 1) {
+    return normalizeDirectoryProfile(byName.data[0]);
+  }
+
+  if ((byName.data ?? []).length > 1) {
+    return { ambiguous: true };
+  }
+
+  return null;
+}
+
+async function loadTaskInvites() {
+  if (!supabaseClient || !cloudUser) {
+    taskInvites = [];
+    renderTaskInvites();
+    return;
+  }
+
+  if (isLoadingTaskInvites) return;
+
+  isLoadingTaskInvites = true;
+  setCloudButtonsBusy(true);
+  renderTaskInvites();
+
+  const inviteeEmail = normalizeEmail(cloudUser.email);
+  const { data, error } = await supabaseClient
+    .from(TASK_INVITES_TABLE)
+    .select("id, inviter_email, inviter_name, invitee_email, task_payload, status, created_at")
+    .eq("invitee_email", inviteeEmail)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+
+  isLoadingTaskInvites = false;
+  setCloudButtonsBusy(false);
+
+  if (error) {
+    const message = getInviteErrorMessage(error, "load invites");
+    setCloudStatus(message);
+    taskInvites = [];
+    renderTaskInvites();
+    console.error(error);
+    return;
+  }
+
+  taskInvites = Array.isArray(data) ? data : [];
+  renderTaskInvites();
+}
+
+function handleInviteAction(event) {
+  const button = event.target.closest("[data-invite-action][data-invite-id]");
+  if (!button) return;
+
+  const inviteId = button.dataset.inviteId;
+  if (button.dataset.inviteAction === "accept") {
+    void acceptTaskInvite(inviteId);
+  }
+
+  if (button.dataset.inviteAction === "decline") {
+    void declineTaskInvite(inviteId);
+  }
+}
+
+async function acceptTaskInvite(inviteId) {
+  if (!supabaseClient || !cloudUser) return;
+
+  const invite = taskInvites.find((savedInvite) => String(savedInvite.id) === String(inviteId));
+  if (!invite) return;
+
+  const alreadyAccepted = tasks.some((task) => String(task.sharedInviteId ?? "") === String(invite.id));
+  let acceptedTask = null;
+
+  if (!alreadyAccepted) {
+    acceptedTask = createTaskFromInvite(invite);
+    tasks.push(acceptedTask);
+    saveCustomTaskType(acceptedTask.type);
+    saveTasks();
+  }
+
+  const { error } = await supabaseClient
+    .from(TASK_INVITES_TABLE)
+    .update({
+      status: "accepted",
+      responded_at: new Date().toISOString(),
+      accepted_by: cloudUser.id,
+    })
+    .eq("id", invite.id);
+
+  if (error) {
+    const message = getInviteErrorMessage(error, "accept invite");
+    setCloudStatus(message);
+    showAppToast("Invite not updated", message);
+    console.error(error);
+    return;
+  }
+
+  taskInvites = taskInvites.filter((savedInvite) => String(savedInvite.id) !== String(invite.id));
+  renderTaskTypeOptions();
+  renderTaskInvites();
+  render();
+  showAppToast("Invite accepted", acceptedTask ? `${acceptedTask.title} was added to your schedule.` : "That task is already in your schedule.");
+}
+
+async function declineTaskInvite(inviteId) {
+  if (!supabaseClient || !cloudUser) return;
+
+  const invite = taskInvites.find((savedInvite) => String(savedInvite.id) === String(inviteId));
+  if (!invite) return;
+
+  const { error } = await supabaseClient
+    .from(TASK_INVITES_TABLE)
+    .update({
+      status: "declined",
+      responded_at: new Date().toISOString(),
+    })
+    .eq("id", invite.id);
+
+  if (error) {
+    const message = getInviteErrorMessage(error, "decline invite");
+    setCloudStatus(message);
+    showAppToast("Invite not updated", message);
+    console.error(error);
+    return;
+  }
+
+  taskInvites = taskInvites.filter((savedInvite) => String(savedInvite.id) !== String(invite.id));
+  renderTaskInvites();
+  showAppToast("Invite declined", "The request was removed from your inbox.");
+}
+
+function renderTaskInvites() {
+  if (!inviteList) return;
+  renderNotifications(reminderOccurrences);
+
+  if (!cloudUser) {
+    inviteList.innerHTML = "";
+    return;
+  }
+
+  if (isLoadingTaskInvites) {
+    inviteList.innerHTML = '<p class="invite-empty">Checking for invites...</p>';
+    return;
+  }
+
+  if (taskInvites.length === 0) {
+    inviteList.innerHTML = '<p class="invite-empty">No pending task invites.</p>';
+    return;
+  }
+
+  inviteList.innerHTML = taskInvites.map(createInviteCard).join("");
+}
+
+function createInviteCard(invite) {
+  const preview = createInvitePreview(invite);
+  const sentLabel = invite.created_at ? formatDateHeading(toDateInputValue(new Date(invite.created_at))) : "Recently";
+  const inviteId = String(invite.id ?? "");
+
+  return `
+    <article class="invite-card">
+      <div class="invite-card-main">
+        <strong>${escapeHTML(preview.title)}</strong>
+        <small>${escapeHTML(preview.kindLabel)} from ${escapeHTML(preview.inviterName || preview.inviterEmail || "someone")}</small>
+        <span>${escapeHTML(preview.dateLabel)} &middot; ${escapeHTML(preview.timeLabel)} &middot; ${escapeHTML(preview.type)}</span>
+        <em>Sent ${escapeHTML(sentLabel)}</em>
+      </div>
+      <div class="invite-actions">
+        <button class="secondary-button" data-invite-action="decline" data-invite-id="${escapeHTML(inviteId)}" type="button">Decline</button>
+        <button class="primary-button" data-invite-action="accept" data-invite-id="${escapeHTML(inviteId)}" type="button">Accept</button>
+      </div>
+    </article>
+  `;
+}
+
+function createInvitePreview(invite) {
+  const payload = getInvitePayload(invite);
+  const itemKind = normalizeItemKind(payload.itemKind);
+  const date = isISODateString(payload.date) ? payload.date : todayISO;
+  const time = isTimeInputValue(payload.time) ? payload.time : "09:00";
+  const title = normalizeInviteTitle(payload.title);
+  const type = normalizeTaskTypeName(payload.type) || "Personal";
+
+  return {
+    title,
+    type,
+    inviterName: normalizeShedulrDisplayName(invite.inviter_name),
+    inviterEmail: normalizeEmail(invite.inviter_email),
+    kindLabel: itemKind === "reminder" ? "Reminder" : "Task",
+    dateLabel: formatDateHeading(date),
+    timeLabel: formatTimeFromMinutes(timeToMinutes(time)),
+  };
+}
+
+function createTaskInvitePayload(task) {
+  const itemKind = getItemKind(task);
+  return {
+    sourceTaskId: String(task.id ?? ""),
+    itemKind,
+    title: normalizeInviteTitle(task.title),
+    date: isISODateString(task.date) ? task.date : todayISO,
+    time: isTimeInputValue(task.time) ? task.time : "09:00",
+    duration: itemKind === "reminder" ? 0 : clamp(Number(task.duration) || 30, 15, 300),
+    type: normalizeTaskTypeName(task.type) || "Personal",
+    priority: normalizePriority(task.priority),
+    notes: String(task.notes ?? "").trim().slice(0, 700),
+    repeats: Boolean(task.repeats),
+    repeatMode: getTaskRepeatModeValue(task),
+    repeatIntervalDays: normalizeRepeatIntervalDays(task.repeatIntervalDays),
+    repeatDays: normalizeRepeatDays(task.repeatDays),
+  };
+}
+
+function createTaskFromInvite(invite) {
+  const payload = getInvitePayload(invite);
+  const itemKind = normalizeItemKind(payload.itemKind);
+  const date = isISODateString(payload.date) ? payload.date : todayISO;
+  const time = isTimeInputValue(payload.time) ? payload.time : "09:00";
+  const repeatMode = getRepeatModeForItemKind(itemKind, payload.repeatMode, "weekly");
+  const repeatDays = normalizeRepeatDays(payload.repeatDays);
+  const task = {
+    id: crypto.randomUUID(),
+    itemKind,
+    title: normalizeInviteTitle(payload.title),
+    date,
+    time,
+    duration: itemKind === "reminder" ? 0 : clamp(Number(payload.duration) || 30, 15, 300),
+    type: normalizeTaskTypeName(payload.type) || "Personal",
+    priority: normalizePriority(payload.priority),
+    notes: String(payload.notes ?? "").trim().slice(0, 700),
+    repeats: Boolean(payload.repeats),
+    repeatMode,
+    repeatIntervalDays: normalizeRepeatIntervalDays(payload.repeatIntervalDays),
+    repeatDays: Boolean(payload.repeats) ? repeatDays : [],
+    completedDates: [],
+    skippedDates: [],
+    earnedPointsByDate: {},
+    actualMinutesByDate: {},
+    inviteEmails: [],
+    inviteLabels: [],
+    sentInviteEmails: [],
+    sharedInviteId: String(invite.id),
+    sharedByEmail: normalizeEmail(invite.inviter_email),
+    sharedByName: normalizeShedulrDisplayName(invite.inviter_name),
+    done: false,
+    skipped: false,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (task.repeats && task.repeatMode === "weekly" && task.repeatDays.length === 0) {
+    task.repeatDays = [weekdayForISODate(task.date)];
+  }
+
+  return normalizeTasks([task])[0];
+}
+
+function getInvitePayload(invite) {
+  return invite?.task_payload && typeof invite.task_payload === "object" && !Array.isArray(invite.task_payload)
+    ? invite.task_payload
+    : {};
+}
+
+function getInviteErrorMessage(error, action) {
+  const message = String(error?.message ?? "");
+  if (message.toLowerCase().includes("relation") || message.toLowerCase().includes("does not exist")) {
+    return "Invite table is missing. Run the updated supabase-setup.sql in Supabase SQL Editor first.";
+  }
+
+  if (message.toLowerCase().includes("row-level security") || message.toLowerCase().includes("permission")) {
+    return "Supabase invite security rules are blocking this. Run the updated supabase-setup.sql again.";
+  }
+
+  return getCloudErrorMessage(error, action);
 }
 
 function createCloudSnapshot() {
@@ -6693,6 +7504,80 @@ function applyWeeklyGoalsToControls() {
   });
 }
 
+function parseInviteEmails(value) {
+  return normalizeInviteEmails(parseInviteRecipients(value));
+}
+
+function parseInviteRecipients(value) {
+  const rawValues = Array.isArray(value) ? value : [value];
+  const tokens = rawValues.flatMap((rawValue) =>
+    String(rawValue ?? "")
+      .split(/[,\n;]+/)
+      .flatMap((chunk) => {
+        const trimmed = chunk.trim();
+        if (!trimmed) return [];
+        if (!trimmed.includes("@") && /\s/.test(trimmed)) return [trimmed];
+        return trimmed.split(/\s+/);
+      }),
+  );
+  const seen = new Set();
+
+  return tokens
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => {
+      const key = token.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12);
+}
+
+function normalizeInviteEmails(value) {
+  const emails = Array.isArray(value) ? value : [value];
+  const seen = new Set();
+
+  return emails
+    .map(normalizeEmail)
+    .filter((email) => email && email.includes("@") && email.includes("."))
+    .filter((email) => {
+      if (seen.has(email)) return false;
+      seen.add(email);
+      return true;
+    });
+}
+
+function normalizeInviteLabels(value) {
+  return parseInviteRecipients(value).slice(0, 12);
+}
+
+function isLikelyEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? "").trim());
+}
+
+function normalizeEmail(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function getTaskInviteFieldValue(task) {
+  const labels = normalizeInviteLabels(task.inviteLabels);
+  return (labels.length > 0 ? labels : normalizeInviteEmails(task.inviteEmails)).join(", ");
+}
+
+function normalizeInviteTitle(value) {
+  const title = String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 80);
+  return title || "Shared task";
+}
+
+function isISODateString(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ""));
+}
+
+function isTimeInputValue(value) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value ?? ""));
+}
+
 function normalizeTasks(savedTasks) {
   return savedTasks.map((task) => ({
     ...task,
@@ -6709,6 +7594,12 @@ function normalizeTasks(savedTasks) {
     actualMinutes: Number.isFinite(Number(task.actualMinutes)) ? Math.round(Number(task.actualMinutes)) : null,
     earnedPointsByDate: normalizeNumberMap(task.earnedPointsByDate),
     actualMinutesByDate: normalizeNumberMap(task.actualMinutesByDate),
+    inviteEmails: normalizeInviteEmails(task.inviteEmails),
+    inviteLabels: normalizeInviteLabels(task.inviteLabels ?? task.inviteEmails),
+    sentInviteEmails: normalizeInviteEmails(task.sentInviteEmails),
+    sharedInviteId: String(task.sharedInviteId ?? ""),
+    sharedByEmail: normalizeEmail(task.sharedByEmail),
+    sharedByName: normalizeShedulrDisplayName(task.sharedByName),
     skipped: Boolean(task.skipped),
   }));
 }

@@ -7,6 +7,22 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div class="startup-screen" id="startupScreen" aria-hidden="true">
+      <div class="startup-brand">
+        <div class="startup-mark">
+          <svg viewBox="0 0 72 72" aria-hidden="true">
+            <rect x="11" y="14" width="50" height="44" rx="15"></rect>
+            <path d="M23 34h26"></path>
+            <path d="M23 45h17"></path>
+            <path d="M25 13v10"></path>
+            <path d="M47 13v10"></path>
+            <path d="M46 34l7 7 11-14"></path>
+          </svg>
+        </div>
+        <div class="startup-wordmark">Shedulr</div>
+        <p>Plan the day. Keep the streak.</p>
+      </div>
+    </div>
     <main class="app-shell">
       <header class="topbar">
         <div class="brand-group">
@@ -19,7 +35,9 @@
           </div>
         </div>
         <div class="app-titlebar" aria-label="Shedulr">
-          <h1>Shedulr</h1>
+          <h1 class="brand-wordmark">
+            <span class="brand-wordmark-text">Shedulr</span>
+          </h1>
         </div>
         <div class="top-actions">
           <div class="top-streak-pill" id="topStreakPill" aria-label="Current streak">
@@ -114,6 +132,26 @@
                 <button class="danger-button" id="logoutButton" type="button">Log out</button>
               </div>
             </div>
+
+            <form class="shedulr-name-card hidden" id="shedulrNameForm">
+              <label>
+                Shedulr name
+                <input id="shedulrNameInput" name="shedulrName" type="text" maxlength="32" autocomplete="nickname" placeholder="Your public Shedulr name" />
+              </label>
+              <button class="secondary-button" type="submit">Save name</button>
+              <small id="shedulrNameStatus">People can invite you with this name or your email.</small>
+            </form>
+
+            <section class="invite-inbox hidden" id="inviteInbox" aria-label="Task invites">
+              <div class="invite-inbox-header">
+                <div>
+                  <strong>Task Invites</strong>
+                  <small>Accept tasks and reminders shared with your login email.</small>
+                </div>
+                <button class="secondary-button" id="refreshInvitesButton" type="button">Refresh</button>
+              </div>
+              <div class="invite-list" id="inviteList"></div>
+            </section>
           </section>
         </div>
       </aside>
@@ -221,6 +259,7 @@
           <div class="assistant-response" id="assistantResponse" aria-live="polite">
             <strong>Ready when you are.</strong>
             <p>Ask me to find a better time, spot overload, check your week, or help plan study and breaks.</p>
+            <small>Local schedule assistant. Voice support depends on your browser.</small>
           </div>
 
           <div class="assistant-prompts" aria-label="Assistant prompt examples">
@@ -315,6 +354,11 @@
             <label>
               Notes
               <textarea id="editTaskNotes" name="notes" rows="3"></textarea>
+            </label>
+
+            <label>
+              Invite people
+              <input id="editTaskInviteEmails" name="inviteEmails" type="text" inputmode="email" autocomplete="off" placeholder="email or Shedulr name, comma separated" />
             </label>
 
             <fieldset class="repeat-box">
@@ -440,6 +484,11 @@
               <label>
                 Notes
                 <textarea id="taskNotes" name="notes" rows="4" placeholder="Add details, links, or anything you need to remember."></textarea>
+              </label>
+
+              <label>
+                Invite people
+                <input id="taskInviteEmails" name="inviteEmails" type="text" inputmode="email" autocomplete="off" placeholder="email or Shedulr name, comma separated" />
               </label>
 
               <fieldset class="repeat-box">
@@ -669,6 +718,20 @@
       </section>
 
       <nav class="bottom-tabbar" aria-label="Main tabs">
+        <button class="notifications-fab" id="notificationButton" type="button" aria-label="Open notifications" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
+            <path d="M10 21h4"></path>
+          </svg>
+          <span class="notification-badge hidden" id="notificationBadge">0</span>
+        </button>
+        <section class="notification-tray hidden" id="notificationPanel" aria-label="Notifications">
+          <div class="notification-tray-header">
+            <strong>Notifications</strong>
+            <button class="delete-x-button" id="closeNotificationPanel" type="button" aria-label="Close notifications">x</button>
+          </div>
+          <div class="notification-list" id="notificationList"></div>
+        </section>
         <button class="tab-button active" data-tab="home" type="button" aria-label="Home">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z"></path>
