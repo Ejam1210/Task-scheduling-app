@@ -346,7 +346,7 @@
               <input id="editTaskName" name="title" type="text" required />
             </label>
 
-            <div class="field-row date-time-row">
+            <div class="field-row field-row-three date-time-row">
               <label>
                 Date
                 <input id="editTaskDate" name="date" type="date" required />
@@ -355,13 +355,27 @@
                 <span>Estimated start</span>
                 <input id="editTaskTime" name="time" type="time" step="60" required />
               </label>
+              <label id="editTaskEndTimeField">
+                End time
+                <input id="editTaskEndTime" name="endTime" type="time" step="60" />
+              </label>
             </div>
 
             <div class="field-row field-row-four">
-              <label id="editTaskDurationField">
-                Duration
-                <input id="editTaskDuration" name="duration" type="time" min="00:01" max="05:00" step="60" required />
-              </label>
+              <div class="duration-field" id="editTaskDurationField">
+                <span>Duration</span>
+                <div class="duration-dial" id="editTaskDurationDial" role="group" aria-label="Edit task duration">
+                  <label class="duration-part">
+                    <input id="editTaskDurationHours" class="duration-part-input" type="number" min="0" max="5" step="1" inputmode="numeric" value="0" data-duration-part="hours" />
+                    <span>hr</span>
+                  </label>
+                  <label class="duration-part">
+                    <input id="editTaskDurationMinutes" class="duration-part-input" type="number" min="0" max="59" step="1" inputmode="numeric" value="30" data-duration-part="minutes" />
+                    <span>min</span>
+                  </label>
+                </div>
+                <input id="editTaskDuration" name="duration" type="hidden" value="30" />
+              </div>
               <label id="editTaskTimerModeField">
                 Timer
                 <select id="editTaskTimerMode" name="timerMode">
@@ -426,6 +440,7 @@
             </fieldset>
 
             <div class="edit-actions">
+              <button class="danger-button" id="deleteEditedTaskButton" type="button">Delete</button>
               <button class="secondary-button ghost-button" id="cancelEditTask" type="button">Cancel</button>
               <button class="primary-button" type="submit">Save changes</button>
             </div>
@@ -465,7 +480,7 @@
                 <button class="secondary-button" id="saveTemplateButton" type="button">Save current</button>
               </div>
 
-              <div class="field-row date-time-row">
+              <div class="field-row field-row-three date-time-row">
                 <label>
                   Date
                   <input id="taskDate" name="date" type="date" required />
@@ -474,13 +489,27 @@
                   <span>Estimated start</span>
                   <input id="taskTime" name="time" type="time" step="60" required />
                 </label>
+                <label id="taskEndTimeField">
+                  End time
+                  <input id="taskEndTime" name="endTime" type="time" step="60" />
+                </label>
               </div>
 
               <div class="field-row field-row-four">
-                <label id="taskDurationField">
-                  Duration
-                  <input id="taskDuration" name="duration" type="time" min="00:01" max="05:00" step="60" value="00:30" required />
-                </label>
+                <div class="duration-field" id="taskDurationField">
+                  <span>Duration</span>
+                  <div class="duration-dial" id="taskDurationDial" role="group" aria-label="Task duration">
+                    <label class="duration-part">
+                      <input id="taskDurationHours" class="duration-part-input" type="number" min="0" max="5" step="1" inputmode="numeric" value="0" data-duration-part="hours" />
+                      <span>hr</span>
+                    </label>
+                    <label class="duration-part">
+                      <input id="taskDurationMinutes" class="duration-part-input" type="number" min="0" max="59" step="1" inputmode="numeric" value="30" data-duration-part="minutes" />
+                      <span>min</span>
+                    </label>
+                  </div>
+                  <input id="taskDuration" name="duration" type="hidden" value="30" />
+                </div>
                 <label id="taskTimerModeField">
                   Timer
                   <select id="taskTimerMode" name="timerMode">

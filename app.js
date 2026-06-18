@@ -154,7 +154,11 @@ const taskItemKindInput = document.querySelector("#taskItemKind");
 const taskDateInput = document.querySelector("#taskDate");
 const taskTimeInput = document.querySelector("#taskTime");
 const taskTimeLabel = document.querySelector("#taskTimeLabel span");
+const taskEndTimeInput = document.querySelector("#taskEndTime");
+const taskEndTimeField = document.querySelector("#taskEndTimeField");
 const taskDurationInput = document.querySelector("#taskDuration");
+const taskDurationHoursInput = document.querySelector("#taskDurationHours");
+const taskDurationMinutesInput = document.querySelector("#taskDurationMinutes");
 const taskDurationField = document.querySelector("#taskDurationField");
 const taskTimerModeInput = document.querySelector("#taskTimerMode");
 const taskTimerModeField = document.querySelector("#taskTimerModeField");
@@ -256,7 +260,11 @@ const editTaskNameInput = document.querySelector("#editTaskName");
 const editTaskDateInput = document.querySelector("#editTaskDate");
 const editTaskTimeInput = document.querySelector("#editTaskTime");
 const editTaskTimeLabel = document.querySelector("#editTaskTimeLabel span");
+const editTaskEndTimeInput = document.querySelector("#editTaskEndTime");
+const editTaskEndTimeField = document.querySelector("#editTaskEndTimeField");
 const editTaskDurationInput = document.querySelector("#editTaskDuration");
+const editTaskDurationHoursInput = document.querySelector("#editTaskDurationHours");
+const editTaskDurationMinutesInput = document.querySelector("#editTaskDurationMinutes");
 const editTaskDurationField = document.querySelector("#editTaskDurationField");
 const editTaskTimerModeInput = document.querySelector("#editTaskTimerMode");
 const editTaskTimerModeField = document.querySelector("#editTaskTimerModeField");
@@ -273,6 +281,7 @@ const editRepeatIntervalDaysInput = document.querySelector("#editRepeatIntervalD
 const editWeekdayPicker = document.querySelector("#editWeekdayPicker");
 const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) ?? null;
 const cancelEditTaskButton = document.querySelector("#cancelEditTask");
+const deleteEditedTaskButton = document.querySelector("#deleteEditedTaskButton");
 
 let cloudUser = null;
 let cloudSaveTimeout = null;
@@ -546,6 +555,10 @@ homeDayGrid?.addEventListener("touchmove", handleHomeGridTouchMove, { passive: f
 homeDayGrid?.addEventListener("touchend", resetHomeGridPinch);
 taskItemKindInput.addEventListener("change", toggleItemKindFields);
 taskTimerModeInput.addEventListener("change", toggleItemKindFields);
+[taskDurationHoursInput, taskDurationMinutesInput].forEach((input) => {
+  input?.addEventListener("input", () => syncDurationDialValue(taskDurationInput, taskDurationHoursInput, taskDurationMinutesInput));
+  input?.addEventListener("change", () => syncDurationDialValue(taskDurationInput, taskDurationHoursInput, taskDurationMinutesInput, true));
+});
 taskRepeatModeInput.addEventListener("change", () => {
   toggleRepeatControls();
   if (taskRepeatsInput.checked && getTaskRepeatMode() === "weekly" && getSelectedRepeatDays().length === 0) {
@@ -583,6 +596,10 @@ function openScheduleTaskFormFromHome() {
 
 editItemKindInput.addEventListener("change", toggleEditItemKindFields);
 editTaskTimerModeInput.addEventListener("change", toggleEditItemKindFields);
+[editTaskDurationHoursInput, editTaskDurationMinutesInput].forEach((input) => {
+  input?.addEventListener("input", () => syncDurationDialValue(editTaskDurationInput, editTaskDurationHoursInput, editTaskDurationMinutesInput));
+  input?.addEventListener("change", () => syncDurationDialValue(editTaskDurationInput, editTaskDurationHoursInput, editTaskDurationMinutesInput, true));
+});
 editTaskRepeatsInput.addEventListener("change", () => {
   toggleEditRepeatControls();
   if (editTaskRepeatsInput.checked && getEditRepeatMode() === "weekly" && getEditRepeatDays().length === 0) {
@@ -610,6 +627,7 @@ homeWidgetGrid?.addEventListener("pointercancel", cancelHomeWidgetDrag);
 homeWidgetGrid?.addEventListener("lostpointercapture", cancelHomeWidgetDrag);
 window.addEventListener("resize", applyHomeWidgetLayout);
 document.addEventListener("click", handleHomeWidgetOutsideClick);
+document.addEventListener("click", handlePickerFieldClick);
 window.addEventListener("load", () => {
   window.setTimeout(() => startupScreen?.remove(), 2300);
 });
@@ -673,6 +691,7 @@ taskDateInput.addEventListener("change", () => {
 
 taskForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  syncDurationDialValue(taskDurationInput, taskDurationHoursInput, taskDurationMinutesInput, true);
 
   const formData = new FormData(taskForm);
   const repeats = formData.get("repeats") === "on";
@@ -693,6 +712,7 @@ taskForm.addEventListener("submit", (event) => {
     title: formData.get("title").trim(),
     date: startDate,
     time: formData.get("time"),
+    endTime: itemKind === "reminder" ? normalizeOptionalEndTime(formData.get("endTime")) : "",
     duration: itemKind === "reminder" || timerMode === "stopwatch" ? 0 : normalizeTaskDuration(formData.get("duration")),
     timerMode,
     type: taskType,
@@ -794,6 +814,9 @@ taskList.addEventListener("pointerdown", startTaskSwipe);
 taskList.addEventListener("pointermove", updateTaskSwipe);
 taskList.addEventListener("pointerup", finishTaskSwipe);
 taskList.addEventListener("lostpointercapture", cancelTaskSwipe);
+window.addEventListener("pointermove", updateTaskSwipe, { passive: false });
+window.addEventListener("pointerup", finishTaskSwipe);
+window.addEventListener("pointercancel", cancelTaskSwipe);
 taskList.addEventListener("pointerdown", startHoldToEdit);
 taskList.addEventListener("pointerup", clearHoldToEdit);
 taskList.addEventListener("pointerup", handleTaskDoubleTap);
@@ -853,6 +876,7 @@ missedTaskList.addEventListener("click", (event) => {
 
 editTaskForm.addEventListener("submit", saveEditedTask);
 cancelEditTaskButton.addEventListener("click", closeEditTask);
+deleteEditedTaskButton.addEventListener("click", deleteEditedTask);
 editTaskOverlay.addEventListener("click", (event) => {
   if (event.target === editTaskOverlay) closeEditTask();
 });
@@ -2289,9 +2313,16 @@ function toggleItemKindFields() {
   if (!taskRepeatsInput.checked) {
     taskRepeatModeInput.value = isReminder ? "interval" : "weekly";
   }
-  setDurationControlState(taskDurationInput, taskDurationField, { hidden: isReminder, disabled: isStopwatch });
+  taskEndTimeField?.classList.toggle("hidden", !isReminder);
+  if (!isReminder) taskEndTimeInput.value = "";
+  setDurationControlState(taskDurationInput, taskDurationField, {
+    hidden: isReminder,
+    disabled: isStopwatch,
+    hoursInput: taskDurationHoursInput,
+    minutesInput: taskDurationMinutesInput,
+  });
   taskTimerModeField.classList.toggle("hidden", isReminder);
-  taskDurationInput.toggleAttribute("required", !isReminder && !isStopwatch);
+  taskDurationInput.removeAttribute("required");
   taskTimerModeInput.toggleAttribute("required", !isReminder);
   taskTimeLabel.textContent = isReminder ? "Set time" : "Estimated start";
   toggleRepeatControls();
@@ -2303,18 +2334,28 @@ function toggleEditItemKindFields() {
   if (!editTaskRepeatsInput.checked) {
     editRepeatModeInput.value = isReminder ? "interval" : "weekly";
   }
-  setDurationControlState(editTaskDurationInput, editTaskDurationField, { hidden: isReminder, disabled: isStopwatch });
+  editTaskEndTimeField?.classList.toggle("hidden", !isReminder);
+  if (!isReminder) editTaskEndTimeInput.value = "";
+  setDurationControlState(editTaskDurationInput, editTaskDurationField, {
+    hidden: isReminder,
+    disabled: isStopwatch,
+    hoursInput: editTaskDurationHoursInput,
+    minutesInput: editTaskDurationMinutesInput,
+  });
   editTaskTimerModeField.classList.toggle("hidden", isReminder);
-  editTaskDurationInput.toggleAttribute("required", !isReminder && !isStopwatch);
+  editTaskDurationInput.removeAttribute("required");
   editTaskTimerModeInput.toggleAttribute("required", !isReminder);
   editTaskTimeLabel.textContent = isReminder ? "Set time" : "Estimated start";
   toggleEditRepeatControls();
 }
 
-function setDurationControlState(input, field, { hidden, disabled }) {
+function setDurationControlState(input, field, { hidden, disabled, hoursInput, minutesInput }) {
   field.classList.toggle("hidden", hidden);
   field.classList.toggle("duration-disabled", disabled);
-  input.disabled = Boolean(disabled);
+  input.disabled = false;
+  [hoursInput, minutesInput].forEach((control) => {
+    if (control) control.disabled = Boolean(disabled);
+  });
 
   if (disabled) {
     if (input.value) input.dataset.lastDurationValue = input.value;
@@ -2323,8 +2364,10 @@ function setDurationControlState(input, field, { hidden, disabled }) {
   }
 
   if (!input.value) {
-    input.value = input.dataset.lastDurationValue || formatDurationInputValue(DEFAULT_TASK_DURATION_MINUTES);
+    input.value = input.dataset.lastDurationValue || String(DEFAULT_TASK_DURATION_MINUTES);
   }
+
+  setDurationDialValue(input, hoursInput, minutesInput, input.value);
 }
 
 function toggleRepeatControls() {
@@ -2621,6 +2664,7 @@ function startTaskSwipe(event) {
   cancelTaskSwipe();
   taskSwipeState = {
     pointerId: event.pointerId,
+    pointerType: event.pointerType || "mouse",
     taskId: taskCard.dataset.taskId,
     occurrenceDate: taskCard.dataset.occurrenceDate,
     sourceElement: taskCard,
@@ -2641,7 +2685,7 @@ function updateTaskSwipe(event) {
   if (!taskSwipeState.active) {
     if (absX < TASK_SWIPE_ACTIVATE_DISTANCE && absY < TASK_SWIPE_ACTIVATE_DISTANCE) return;
 
-    if (deltaX >= 0 || absY > absX) {
+    if (deltaX >= 0 || absY > absX * 1.25) {
       cancelTaskSwipe();
       return;
     }
@@ -2662,7 +2706,7 @@ function updateTaskSwipe(event) {
   taskSwipeState.sourceElement.style.transform = `translateX(${offset}px)`;
   taskSwipeState.sourceElement.classList.toggle(
     "swipe-delete-ready",
-    Math.abs(offset) >= TASK_SWIPE_DELETE_DISTANCE,
+    Math.abs(offset) >= getTaskSwipeDeleteDistance(taskSwipeState),
   );
 }
 
@@ -2671,7 +2715,7 @@ function finishTaskSwipe(event) {
 
   const state = taskSwipeState;
   const deltaX = event.clientX - state.startX;
-  const shouldDelete = state.active && deltaX <= -TASK_SWIPE_DELETE_DISTANCE;
+  const shouldDelete = state.active && deltaX <= -getTaskSwipeDeleteDistance(state);
 
   if (state.active) {
     event.preventDefault();
@@ -2689,6 +2733,10 @@ function finishTaskSwipe(event) {
   if (!deleteTask(state.taskId, state.occurrenceDate)) return;
   saveTasks();
   render();
+}
+
+function getTaskSwipeDeleteDistance(state) {
+  return state?.pointerType === "touch" ? 72 : TASK_SWIPE_DELETE_DISTANCE;
 }
 
 function cancelInactiveTaskSwipe() {
@@ -3206,7 +3254,9 @@ function openEditTask(taskId, occurrenceDate) {
   editTaskNameInput.value = occurrence.title;
   editTaskDateInput.value = occurrence.occurrenceDate;
   editTaskTimeInput.value = occurrence.time;
-  editTaskDurationInput.value = isStopwatchTask(occurrence) ? "" : formatDurationInputValue(getTaskDurationForForm(occurrence));
+  editTaskEndTimeInput.value = normalizeOptionalEndTime(occurrence.endTime);
+  setDurationDialValue(editTaskDurationInput, editTaskDurationHoursInput, editTaskDurationMinutesInput, getTaskDurationForForm(occurrence));
+  if (isStopwatchTask(occurrence)) editTaskDurationInput.value = "";
   editTaskTimerModeInput.value = getTaskTimerMode(occurrence);
   editTaskTypeInput.value = occurrence.type;
   editTaskPriorityInput.value = normalizePriority(occurrence.priority);
@@ -3229,8 +3279,22 @@ function closeEditTask() {
   editTaskForm.reset();
 }
 
+function deleteEditedTask() {
+  const taskId = editTaskIdInput.value;
+  const occurrenceDate = editOccurrenceDateInput.value;
+  if (!taskId || !occurrenceDate) return;
+
+  const didDelete = deleteTask(taskId, occurrenceDate);
+  closeEditTask();
+  if (!didDelete) return;
+
+  saveTasks();
+  render();
+}
+
 function saveEditedTask(event) {
   event.preventDefault();
+  syncDurationDialValue(editTaskDurationInput, editTaskDurationHoursInput, editTaskDurationMinutesInput, true);
 
   const taskId = editTaskIdInput.value;
   const occurrenceDate = editOccurrenceDateInput.value;
@@ -3238,6 +3302,7 @@ function saveEditedTask(event) {
   const date = editTaskDateInput.value;
   const time = editTaskTimeInput.value;
   const itemKind = normalizeItemKind(editItemKindInput.value);
+  const endTime = itemKind === "reminder" ? normalizeOptionalEndTime(editTaskEndTimeInput.value) : "";
   const type = normalizeTaskTypeName(editTaskTypeInput.value);
   const timerMode = itemKind === "reminder" ? "countdown" : normalizeTimerMode(editTaskTimerModeInput.value);
   const duration = itemKind === "reminder" || timerMode === "stopwatch" ? 0 : normalizeTaskDuration(editTaskDurationInput.value);
@@ -3262,6 +3327,7 @@ function saveEditedTask(event) {
       title,
       date,
       time,
+      endTime,
       duration,
       timerMode,
       type,
@@ -3378,6 +3444,7 @@ function createTaskCard(task) {
   const isTimerActive = isActiveTimerFor(task);
   const canStartTimer = !isReminder && !task.done && (!activeTimer || isTimerActive);
   const timingLabel = getTaskTimingLabel(task);
+  const endTimeChip = createEndTimeChip(task);
   const timerPanel = isTimerActive
     ? `
       <div class="task-timer" data-timer-task>
@@ -3416,6 +3483,7 @@ function createTaskCard(task) {
         ${timerPanel}
         <div class="task-meta">
           <span class="chip">${escapeHTML(timingLabel)}</span>
+          ${endTimeChip}
           <span class="chip type-chip">${escapeHTML(task.type)}</span>
           ${priorityChip}
           ${streakChip}
@@ -3451,6 +3519,7 @@ function createCompletedTaskCard(task) {
   const completedMinutes = calculateCompletedMinutes(task);
   const priorityChip = createPriorityChip(task);
   const streakChip = createStreakChip(task.type);
+  const endTimeChip = createEndTimeChip(task);
   const typeStyle = createTypeStyleAttribute(task.type);
 
   return `
@@ -3464,6 +3533,7 @@ function createCompletedTaskCard(task) {
         ${notes}
         <div class="task-meta">
           <span class="chip">${isReminder ? "Reminder done" : `${formatMinutesAsHours(completedMinutes)} tracked`}</span>
+          ${endTimeChip}
           <span class="chip type-chip">${escapeHTML(task.type)}</span>
           ${priorityChip}
           ${streakChip}
@@ -3946,9 +4016,14 @@ function timeToMinutes(time) {
 
 function formatTimeRange(task) {
   const range = getTaskTimeRange(task);
-  return isReminderItem(task)
-    ? formatTimeFromMinutes(range.start)
-    : `${formatTimeFromMinutes(range.start)}-${formatTimeFromMinutes(range.end)}`;
+  if (isReminderItem(task)) {
+    const endTime = normalizeOptionalEndTime(task.endTime);
+    return endTime
+      ? `${formatTimeFromMinutes(range.start)}-${formatTimeFromMinutes(timeToMinutes(endTime))}`
+      : formatTimeFromMinutes(range.start);
+  }
+
+  return `${formatTimeFromMinutes(range.start)}-${formatTimeFromMinutes(range.end)}`;
 }
 
 function formatTimeFromMinutes(minutes) {
@@ -4087,7 +4162,9 @@ function applySelectedTaskTemplate() {
 
   taskItemKindInput.value = normalizeItemKind(template.itemKind);
   taskTitleInput.value = template.title;
-  taskDurationInput.value = isStopwatchTask(template) ? "" : formatDurationInputValue(getTaskDurationForForm(template));
+  taskEndTimeInput.value = normalizeOptionalEndTime(template.endTime);
+  setDurationDialValue(taskDurationInput, taskDurationHoursInput, taskDurationMinutesInput, getTaskDurationForForm(template));
+  if (isStopwatchTask(template)) taskDurationInput.value = "";
   taskTimerModeInput.value = getTaskTimerMode(template);
   taskNotesInput.value = template.notes ?? "";
   taskPriorityInput.value = normalizePriority(template.priority);
@@ -4105,12 +4182,15 @@ function applySelectedTaskTemplate() {
 }
 
 function saveCurrentTaskTemplate() {
+  syncDurationDialValue(taskDurationInput, taskDurationHoursInput, taskDurationMinutesInput, true);
   const formData = new FormData(taskForm);
   const type = getSubmittedTaskType(formData);
+  const itemKind = normalizeItemKind(formData.get("itemKind"));
   const template = normalizeTaskTemplate({
     id: crypto.randomUUID(),
-    itemKind: formData.get("itemKind"),
+    itemKind,
     title: formData.get("title"),
+    endTime: itemKind === "reminder" ? formData.get("endTime") : "",
     duration: formData.get("duration"),
     timerMode: formData.get("timerMode"),
     type,
@@ -5125,6 +5205,7 @@ function createSingleTaskFromOccurrence(task, targetDate, targetTime = task.time
     title: task.title,
     date: targetDate,
     time: targetTime,
+    endTime: itemKind === "reminder" ? normalizeOptionalEndTime(task.endTime) : "",
     duration: itemKind === "reminder" || timerMode === "stopwatch" ? 0 : normalizeTaskDuration(task.duration),
     timerMode,
     type: task.type,
@@ -5367,7 +5448,8 @@ function resetForm() {
   taskForm.reset();
   taskItemKindInput.value = "task";
   taskDateInput.value = todayISO;
-  taskDurationInput.value = formatDurationInputValue(DEFAULT_TASK_DURATION_MINUTES);
+  taskEndTimeInput.value = "";
+  setDurationDialValue(taskDurationInput, taskDurationHoursInput, taskDurationMinutesInput, DEFAULT_TASK_DURATION_MINUTES);
   taskTimerModeInput.value = "countdown";
   taskTypeInput.value = BUILT_IN_TASK_TYPES[0];
   taskPriorityInput.value = "Medium";
@@ -5514,6 +5596,30 @@ function normalizeTaskDuration(value) {
   return clamp(parseDurationMinutes(value) || DEFAULT_TASK_DURATION_MINUTES, MIN_TASK_DURATION_MINUTES, MAX_TASK_DURATION_MINUTES);
 }
 
+function syncDurationDialValue(hiddenInput, hoursInput, minutesInput, shouldRender = false) {
+  const duration = getDurationDialMinutes(hoursInput, minutesInput);
+  if (hiddenInput) hiddenInput.value = String(duration);
+  if (shouldRender) setDurationDialValue(hiddenInput, hoursInput, minutesInput, duration);
+  return duration;
+}
+
+function getDurationDialMinutes(hoursInput, minutesInput) {
+  const maxHours = Math.floor(MAX_TASK_DURATION_MINUTES / 60);
+  const hours = clamp(Math.round(Number(hoursInput?.value) || 0), 0, maxHours);
+  const minutes = clamp(Math.round(Number(minutesInput?.value) || 0), 0, 59);
+  return normalizeTaskDuration(hours * 60 + minutes);
+}
+
+function setDurationDialValue(hiddenInput, hoursInput, minutesInput, value) {
+  const duration = normalizeTaskDuration(value);
+  const hours = Math.floor(duration / 60);
+  const minutes = duration % 60;
+
+  if (hiddenInput) hiddenInput.value = String(duration);
+  if (hoursInput) hoursInput.value = String(hours);
+  if (minutesInput) minutesInput.value = String(minutes);
+}
+
 function parseDurationMinutes(value) {
   if (typeof value === "string" && /^\d{1,2}:\d{2}$/.test(value.trim())) {
     const [hours, minutes] = value.trim().split(":").map(Number);
@@ -5521,13 +5627,6 @@ function parseDurationMinutes(value) {
   }
 
   return Number.isFinite(Number(value)) ? Math.round(Number(value)) : 0;
-}
-
-function formatDurationInputValue(minutes) {
-  const safeMinutes = normalizeTaskDuration(minutes);
-  const hours = Math.floor(safeMinutes / 60);
-  const remainingMinutes = safeMinutes % 60;
-  return `${String(hours).padStart(2, "0")}:${String(remainingMinutes).padStart(2, "0")}`;
 }
 
 function getTaskDurationForForm(task) {
@@ -5550,6 +5649,13 @@ function getTaskTimingLabel(task) {
 
   const durationLabel = `${getVisualTaskDuration(task)} min`;
   return durationLabel;
+}
+
+function createEndTimeChip(task) {
+  const endTime = normalizeOptionalEndTime(task?.endTime);
+  return endTime && isReminderItem(task)
+    ? `<span class="chip">Ends ${escapeHTML(formatTimeFromMinutes(timeToMinutes(endTime)))}</span>`
+    : "";
 }
 
 function calculatePoints(task) {
@@ -6245,6 +6351,54 @@ function hideAppToast() {
   appToastTimer = null;
   appToast.classList.remove("visible");
   appToast.innerHTML = "";
+}
+
+function handlePickerFieldClick(event) {
+  const directPicker = event.target.closest("select, input[type='date'], input[type='time']");
+  if (directPicker) {
+    openNativePicker(directPicker);
+    return;
+  }
+
+  const label = event.target.closest("label");
+  if (!label || event.target.closest("input, textarea, button, a")) return;
+
+  const picker = label.querySelector("select, input[type='date'], input[type='time']");
+  if (!picker) return;
+
+  if (openNativePicker(picker, { allowSyntheticClick: true })) {
+    event.preventDefault();
+  }
+}
+
+function openNativePicker(control, options = {}) {
+  if (!control || control.disabled) return false;
+
+  try {
+    control.focus({ preventScroll: true });
+  } catch {
+    control.focus();
+  }
+
+  if (typeof control.showPicker === "function") {
+    try {
+      control.showPicker();
+      return true;
+    } catch {
+      // Some browsers only allow showPicker during very specific user gestures.
+    }
+  }
+
+  if (options.allowSyntheticClick && control.tagName === "SELECT") {
+    try {
+      control.click();
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
 }
 
 function applyTheme(theme) {
@@ -7233,6 +7387,7 @@ function normalizePublicGrid(grid) {
         title: String(item?.title ?? "Task").slice(0, 80),
         type: normalizeTaskTypeName(item?.type) || "Personal",
         time: isTimeInputValue(item?.time) ? item.time : "09:00",
+        endTime: normalizeOptionalEndTime(item?.endTime),
         duration: normalizeTaskDuration(item?.duration),
         done: Boolean(item?.done),
       })),
@@ -7276,7 +7431,13 @@ function getDirectoryErrorMessage(error, action) {
   const message = String(error?.message ?? "");
   const lowerMessage = message.toLowerCase();
 
-  if (lowerMessage.includes("relation") || lowerMessage.includes("does not exist") || lowerMessage.includes("column")) {
+  if (
+    lowerMessage.includes("relation")
+    || lowerMessage.includes("does not exist")
+    || lowerMessage.includes("column")
+    || lowerMessage.includes("schema cache")
+    || lowerMessage.includes("could not find the table")
+  ) {
     return "Shedulr name lookup is missing. Run the updated supabase-setup.sql in Supabase SQL Editor.";
   }
 
@@ -7638,6 +7799,7 @@ function createTaskInvitePayload(task) {
     title: normalizeInviteTitle(task.title),
     date: isISODateString(task.date) ? task.date : todayISO,
     time: isTimeInputValue(task.time) ? task.time : "09:00",
+    endTime: itemKind === "reminder" ? normalizeOptionalEndTime(task.endTime) : "",
     duration: itemKind === "reminder" || timerMode === "stopwatch" ? 0 : normalizeTaskDuration(task.duration),
     timerMode,
     type: normalizeTaskTypeName(task.type) || "Personal",
@@ -7664,6 +7826,7 @@ function createTaskFromInvite(invite) {
     title: normalizeInviteTitle(payload.title),
     date,
     time,
+    endTime: itemKind === "reminder" ? normalizeOptionalEndTime(payload.endTime) : "",
     duration: itemKind === "reminder" || timerMode === "stopwatch" ? 0 : normalizeTaskDuration(payload.duration),
     timerMode,
     type: normalizeTaskTypeName(payload.type) || "Personal",
@@ -7795,6 +7958,7 @@ function createPublicGridSnapshot(occurrences) {
           title: task.title,
           type: task.type,
           time: task.time,
+          endTime: isReminderItem(task) ? normalizeOptionalEndTime(task.endTime) : "",
           duration: getVisualTaskDuration(task),
           done: Boolean(task.done),
         })),
@@ -8559,6 +8723,10 @@ function isTimeInputValue(value) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value ?? ""));
 }
 
+function normalizeOptionalEndTime(value) {
+  return isTimeInputValue(value) ? String(value) : "";
+}
+
 function normalizeTasks(savedTasks) {
   return savedTasks.map((task) => {
     const itemKind = normalizeItemKind(task.itemKind);
@@ -8567,6 +8735,7 @@ function normalizeTasks(savedTasks) {
     return {
       ...task,
       itemKind,
+      endTime: itemKind === "reminder" ? normalizeOptionalEndTime(task.endTime) : "",
       duration: itemKind === "reminder" || timerMode === "stopwatch" ? 0 : normalizeTaskDuration(task.duration),
       timerMode,
       priority: normalizePriority(task.priority),
@@ -8608,6 +8777,7 @@ function normalizeTaskTemplate(template) {
     id: template.id || crypto.randomUUID(),
     itemKind,
     title: String(template.title ?? "").trim().replace(/\s+/g, " ").slice(0, 60),
+    endTime: itemKind === "reminder" ? normalizeOptionalEndTime(template.endTime) : "",
     duration: itemKind === "reminder" || timerMode === "stopwatch" ? 0 : normalizeTaskDuration(template.duration),
     timerMode,
     type: normalizeTaskTypeName(template.type),

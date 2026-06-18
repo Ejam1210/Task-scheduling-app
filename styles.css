@@ -1644,6 +1644,63 @@ label {
   font-weight: 800;
 }
 
+.duration-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.duration-dial {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.duration-part {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 46px;
+  border: 1px solid #cbd4cf;
+  border-radius: 7px;
+  background: var(--field);
+  padding: 7px 10px;
+}
+
+.duration-part:focus-within {
+  border-color: var(--green);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.duration-part input {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  text-align: center;
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.duration-part input:focus {
+  box-shadow: none;
+}
+
+.duration-part span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.duration-part input::-webkit-outer-spin-button,
+.duration-part input::-webkit-inner-spin-button {
+  margin: 0;
+}
+
 input,
 select,
 textarea {
@@ -1664,9 +1721,12 @@ select {
   position: relative;
   display: block;
   cursor: pointer;
+  min-height: 44px;
   font: inherit;
   line-height: normal;
   color-scheme: inherit;
+  appearance: auto;
+  -webkit-appearance: menulist;
   z-index: 1;
 }
 
@@ -1682,8 +1742,8 @@ select:focus {
 input[type="date"],
 input[type="time"] {
   display: block;
-  appearance: none;
-  -webkit-appearance: none;
+  appearance: auto;
+  -webkit-appearance: auto;
   min-width: 0;
 }
 
@@ -1716,6 +1776,15 @@ textarea:disabled,
 
 .duration-disabled {
   color: var(--muted);
+}
+
+.duration-disabled .duration-part {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.duration-disabled .duration-part input {
+  cursor: not-allowed;
 }
 
 .custom-type-input.hidden {
@@ -1839,11 +1908,16 @@ textarea:disabled,
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.date-time-row:has(> label.hidden) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .field-row-four {
   grid-template-columns: minmax(92px, 0.72fr) minmax(128px, 0.9fr) minmax(150px, 1fr) minmax(96px, 0.75fr);
 }
 
-.field-row > label {
+.field-row > label,
+.field-row > .duration-field {
   max-width: 100%;
   overflow: visible;
 }
@@ -4866,7 +4940,7 @@ body[data-theme="dark"] .task-form .weekday-picker label:has(input:checked) {
 
 .edit-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 0.85fr 1fr 1fr;
   gap: 10px;
 }
 
