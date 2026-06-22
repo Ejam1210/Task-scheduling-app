@@ -91,11 +91,24 @@ create table if not exists public.scheduler_user_profiles (
   updated_at timestamptz not null default now()
 );
 
+-- Keep older/partial installations compatible with the current profile directory.
+alter table public.scheduler_user_profiles
+add column if not exists email text;
+
+alter table public.scheduler_user_profiles
+add column if not exists display_name text;
+
+alter table public.scheduler_user_profiles
+add column if not exists handle text;
+
 alter table public.scheduler_user_profiles
 add column if not exists public_stats jsonb not null default '{}'::jsonb;
 
 alter table public.scheduler_user_profiles
 add column if not exists grid_visibility text not null default 'private';
+
+alter table public.scheduler_user_profiles
+add column if not exists updated_at timestamptz not null default now();
 
 create index if not exists scheduler_user_profiles_handle_idx
 on public.scheduler_user_profiles (handle);
@@ -124,5 +137,8 @@ on public.scheduler_user_profiles
 for update
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
+
+grant usage on schema public to authenticated;
+grant select, insert, update on table public.scheduler_user_profiles to authenticated;
 
 notify pgrst, 'reload schema';

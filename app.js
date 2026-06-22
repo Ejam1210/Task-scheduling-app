@@ -62,7 +62,7 @@ const HOME_WIDGET_SNAP_SIZE = 24;
 const HOME_WIDGET_ROW_HEIGHT = 168;
 const HOME_WIDGET_DESKTOP_QUERY = "(min-width: 761px) and (pointer: fine)";
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const BUILT_IN_TASK_TYPES = ["Focus", "Personal", "Study", "Health", "Errand"];
+const BUILT_IN_TASK_TYPES = ["Focus", "Personal", "Study", "Health", "Errand", "Event"];
 const PRIORITY_LEVELS = ["Low", "Medium", "High"];
 const HOME_WIDGET_DEFINITIONS = [
   { id: "stats", label: "Stats" },
@@ -212,8 +212,14 @@ const friendAddForm = document.querySelector("#friendAddForm");
 const friendLookupInput = document.querySelector("#friendLookupInput");
 const refreshFriendsButton = document.querySelector("#refreshFriendsButton");
 const publicGridToggle = document.querySelector("#publicGridToggle");
+const publicActivityToggle = document.querySelector("#publicActivityToggle");
 const friendsStatus = document.querySelector("#friendsStatus");
 const friendsList = document.querySelector("#friendsList");
+const friendShareCard = document.querySelector("#friendShareCard");
+const friendShareLinkInput = document.querySelector("#friendShareLink");
+const friendQrCode = document.querySelector("#friendQrCode");
+const copyFriendLinkButton = document.querySelector("#copyFriendLinkButton");
+const shareFriendLinkButton = document.querySelector("#shareFriendLinkButton");
 const friendDetailPanel = document.querySelector("#friendDetailPanel");
 const taskFriendInviteList = document.querySelector("#taskFriendInviteList");
 const editFriendInviteList = document.querySelector("#editFriendInviteList");
@@ -341,8 +347,9 @@ let cloudDirectoryProfile = null;
 let isSavingShedulrName = false;
 let pendingRepeatDelete = null;
 let friends = [];
-let shareSettings = { gridPublic: false };
+let shareSettings = { gridPublic: false, activityPublic: true };
 let isLoadingFriends = false;
+let renderedFriendShareUrl = "";
 
 const TASK_TYPE_STYLES = {
   Focus: { color: "#2d6f9f", bg: "rgba(45, 111, 159, 0.14)" },
@@ -350,6 +357,7 @@ const TASK_TYPE_STYLES = {
   Study: { color: "#2e7d5b", bg: "rgba(46, 125, 91, 0.15)" },
   Health: { color: "#c95f4f", bg: "rgba(201, 95, 79, 0.14)" },
   Errand: { color: "#b2832f", bg: "rgba(178, 131, 47, 0.16)" },
+  Event: { color: "#3c7f88", bg: "rgba(60, 127, 136, 0.16)" },
 };
 
 const DEFAULT_FEATURE_SETTINGS = {
@@ -362,6 +370,7 @@ const DEFAULT_FEATURE_SETTINGS = {
 
 const DEFAULT_SHARE_SETTINGS = {
   gridPublic: false,
+  activityPublic: true,
 };
 
 featureSettings = loadFeatureSettings();
@@ -652,7 +661,11 @@ friendAddForm?.addEventListener("submit", addFriend);
 refreshFriendsButton?.addEventListener("click", refreshFriends);
 friendsList?.addEventListener("click", handleFriendListAction);
 friendDetailPanel?.addEventListener("click", handleFriendDetailAction);
+copyFriendLinkButton?.addEventListener("click", copyFriendShareLink);
+shareFriendLinkButton?.addEventListener("click", shareFriendProfile);
+friendShareLinkInput?.addEventListener("click", () => friendShareLinkInput.select());
 publicGridToggle?.addEventListener("change", updatePublicGridSetting);
+publicActivityToggle?.addEventListener("change", updatePublicActivitySetting);
 taskFriendInviteList?.addEventListener("click", (event) => handleFriendInviteClick(event, taskInviteEmailsInput));
 editFriendInviteList?.addEventListener("click", (event) => handleFriendInviteClick(event, editTaskInviteEmailsInput));
 menuButton.addEventListener("click", openMenu);
@@ -753,6 +766,7 @@ taskForm.addEventListener("submit", (event) => {
 taskList.addEventListener("click", handleTaskAction);
 scheduleGrid.addEventListener("click", handleTaskAction);
 daySummary?.addEventListener("click", handleTaskAction);
+completedTaskList.addEventListener("click", handleTaskAction);
 
 function handleTaskAction(event) {
   const button = event.target.closest("button[data-action]");
@@ -3523,7 +3537,7 @@ function createCompletedTaskCard(task) {
   const typeStyle = createTypeStyleAttribute(task.type);
 
   return `
-    <article class="task-card done" ${typeStyle}>
+    <article class="task-card done" data-task-id="${task.id}" data-occurrence-date="${task.occurrenceDate}" ${typeStyle}>
       <div class="time-block">
         <strong>${timeLabel}</strong>
         <span>${isReminder ? "Set time" : "Estimate"} &middot; ${dayLabel}</span>
@@ -3540,7 +3554,12 @@ function createCompletedTaskCard(task) {
           <span class="chip">${escapeHTML(repeatLabel)}</span>
         </div>
       </div>
-      <div class="points-chip">${isReminder ? "Reminder" : `+${formatPoints(points)} xp`}</div>
+      <div class="completed-task-actions">
+        <div class="points-chip">${isReminder ? "Reminder" : `+${formatPoints(points)} xp`}</div>
+        <button class="icon-button completed-undo-button" type="button" data-action="toggle" title="Move back to your schedule" aria-label="Undo completed task">
+          Undo
+        </button>
+      </div>
     </article>
   `;
 }
@@ -6515,6 +6534,7 @@ async function initializeCloudAuth() {
   } else if (completedRedirect) {
     setCloudStatus("Email confirmed. You can log in with the password you used when signing up.");
   }
+  handleIncomingFriendShareLink();
 
   supabaseClient.auth.onAuthStateChange(async (_event, session) => {
     const nextUser = session?.user ?? null;
@@ -6533,6 +6553,7 @@ async function initializeCloudAuth() {
       renderShedulrNameControls();
       renderTaskInvites();
     }
+    handleIncomingFriendShareLink();
   });
 }
 
@@ -6596,6 +6617,7 @@ async function signInWithEmail(event) {
   await loadCloudData();
   await loadTaskInvites();
   await refreshFriends({ silent: true });
+  handleIncomingFriendShareLink();
 }
 
 async function signUpWithEmail() {
@@ -6622,6 +6644,7 @@ async function signUpWithEmail() {
     await saveCloudDataNow();
     await loadTaskInvites();
     await refreshFriends({ silent: true });
+    handleIncomingFriendShareLink();
     return;
   }
 
@@ -6665,6 +6688,39 @@ function getAuthRedirectUrl() {
   if (!["http:", "https:"].includes(window.location.protocol)) return APP_AUTH_REDIRECT_URL;
 
   return `${window.location.origin}${window.location.pathname}`;
+}
+
+function handleIncomingFriendShareLink() {
+  const label = getIncomingFriendShareLabel();
+  if (!label || !friendLookupInput) return false;
+
+  friendLookupInput.value = label;
+  openProfileMenu();
+
+  if (cloudUser) {
+    setFriendsStatus(`${label} is ready. Tap Add to send the friend request.`);
+    setTimeout(() => friendLookupInput.focus(), 80);
+  } else {
+    setCloudStatus(`Log in or create an account, then add ${label}.`);
+  }
+
+  return true;
+}
+
+function getIncomingFriendShareLabel() {
+  if (!["http:", "https:"].includes(window.location.protocol)) return "";
+
+  const rawValue = new URLSearchParams(window.location.search).get("friend");
+  const handle = createShedulrHandle(String(rawValue ?? "").replace(/^@/, ""));
+  return handle ? `@${handle}` : "";
+}
+
+function clearIncomingFriendShareLink() {
+  if (!window.history?.replaceState || !["http:", "https:"].includes(window.location.protocol)) return;
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete("friend");
+  window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
 }
 
 function updateAuthUI() {
@@ -6914,6 +6970,7 @@ function renderShedulrNameControls() {
 
   if (!cloudUser) {
     setShedulrNameStatus("Log in to save a public Shedulr name.");
+    renderFriendShareCard();
     return;
   }
 
@@ -6921,6 +6978,86 @@ function renderShedulrNameControls() {
   setShedulrNameStatus(handle
     ? `People can invite you with "${fallbackName}" or @${handle}.`
     : "People can invite you with this name or your email.");
+  renderFriendShareCard();
+}
+
+function renderFriendShareCard() {
+  if (!friendShareCard || !friendShareLinkInput || !friendQrCode) return;
+
+  const shareUrl = getFriendShareUrl();
+  friendShareCard.classList.toggle("hidden", !shareUrl);
+  friendShareLinkInput.value = shareUrl;
+  copyFriendLinkButton?.toggleAttribute("disabled", !shareUrl);
+  shareFriendLinkButton?.toggleAttribute("disabled", !shareUrl);
+
+  if (!shareUrl || renderedFriendShareUrl === shareUrl) return;
+  renderedFriendShareUrl = shareUrl;
+  friendQrCode.innerHTML = "";
+
+  if (typeof window.QRCode !== "function") {
+    friendQrCode.innerHTML = '<span class="friend-qr-fallback">QR unavailable</span>';
+    return;
+  }
+
+  new window.QRCode(friendQrCode, {
+    text: shareUrl,
+    width: 156,
+    height: 156,
+    colorDark: "#111111",
+    colorLight: "#ffffff",
+    correctLevel: window.QRCode.CorrectLevel.M,
+  });
+}
+
+function getFriendShareUrl() {
+  if (!cloudUser) return "";
+
+  const fallbackName = normalizeShedulrDisplayName(shedulrNameInput?.value || getActiveProfile()?.name);
+  const handle = cloudDirectoryProfile?.handle || createShedulrHandle(fallbackName);
+  if (!handle) return "";
+
+  const baseUrl = ["http:", "https:"].includes(window.location.protocol)
+    ? new URL(`${window.location.origin}${window.location.pathname}`)
+    : new URL(APP_AUTH_REDIRECT_URL);
+  baseUrl.searchParams.set("friend", `@${handle}`);
+  return baseUrl.toString();
+}
+
+async function copyFriendShareLink() {
+  const shareUrl = getFriendShareUrl();
+  if (!shareUrl) return;
+
+  try {
+    await navigator.clipboard.writeText(shareUrl);
+  } catch {
+    friendShareLinkInput.value = shareUrl;
+    friendShareLinkInput.select();
+    document.execCommand("copy");
+  }
+
+  showAppToast("Friend link copied", "Send it to someone so they can add you in Shedulr.");
+}
+
+async function shareFriendProfile() {
+  const shareUrl = getFriendShareUrl();
+  if (!shareUrl) return;
+
+  if (typeof navigator.share !== "function") {
+    await copyFriendShareLink();
+    return;
+  }
+
+  try {
+    await navigator.share({
+      title: "Add me on Shedulr",
+      text: `Add ${cloudDirectoryProfile?.displayName || getActiveProfile()?.name || "me"} on Shedulr.`,
+      url: shareUrl,
+    });
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      showAppToast("Could not share", "Use Copy link instead.");
+    }
+  }
 }
 
 async function addFriend(event) {
@@ -6975,6 +7112,7 @@ async function addFriend(event) {
     ]);
     saveFriends();
     friendLookupInput.value = "";
+    clearIncomingFriendShareLink();
     renderFriendControls();
     showAppToast("Friend added", `${friendProfile.displayName} is ready for quick invites.`);
     setFriendsStatus("Friend added. Tap their card to see shared stats.");
@@ -7099,9 +7237,22 @@ function updatePublicGridSetting() {
   void syncPublicProfileSnapshot({ silent: true });
 }
 
+function updatePublicActivitySetting() {
+  shareSettings = {
+    ...shareSettings,
+    activityPublic: Boolean(publicActivityToggle?.checked),
+  };
+  saveShareSettings();
+  renderFriendControls();
+  void syncPublicProfileSnapshot({ silent: true });
+}
+
 function renderFriendControls() {
   if (publicGridToggle) {
     publicGridToggle.checked = Boolean(shareSettings.gridPublic);
+  }
+  if (publicActivityToggle) {
+    publicActivityToggle.checked = Boolean(shareSettings.activityPublic);
   }
 
   renderFriendInviteChips();
@@ -7116,12 +7267,18 @@ function renderFriendControls() {
 
   if (friends.length === 0) {
     friendsList.innerHTML = '<p class="friends-empty">No friends yet. Add someone by Shedulr name, @name, or email.</p>';
-    setFriendsStatus(shareSettings.gridPublic ? "Your schedule grid is public to friends." : "Your schedule grid is private.");
+    setFriendsStatus(createSharingStatusLabel());
     return;
   }
 
   friendsList.innerHTML = friends.map(createFriendCard).join("");
-  setFriendsStatus(shareSettings.gridPublic ? "Your schedule grid is public to friends." : "Your schedule grid is private.");
+  setFriendsStatus(createSharingStatusLabel());
+}
+
+function createSharingStatusLabel() {
+  const gridLabel = shareSettings.gridPublic ? "Grid public" : "Grid private";
+  const activityLabel = shareSettings.activityPublic ? "recent activity public" : "recent activity private";
+  return `${gridLabel}; ${activityLabel}.`;
 }
 
 function renderFriendInviteChips() {
@@ -7147,13 +7304,16 @@ function renderFriendInviteChips() {
 function createFriendCard(friend) {
   const friendId = getFriendId(friend);
   const stats = normalizePublicStats(friend.publicStats);
-  const updatedLabel = stats.updatedAt ? `Updated ${formatShortDate(stats.updatedAt)}` : "No shared stats yet";
+  const activityIsPublic = friend.activityPublic !== false && stats.recentPublic;
+  const updatedLabel = activityIsPublic
+    ? stats.updatedAt ? `Updated ${formatShortDate(stats.updatedAt)}` : "No shared stats yet"
+    : "Recent activity private";
   const gridLabel = friend.gridVisibility === "public" ? "Grid public" : "Grid private";
 
   return `
     <article class="friend-card">
       <button class="friend-main" data-friend-action="view" data-friend-id="${escapeHTML(friendId)}" type="button">
-        <span class="profile-avatar" aria-hidden="true">${escapeHTML(getProfileInitials(friend.displayName))}</span>
+        <span class="profile-avatar" aria-hidden="true">${createFriendAvatarContent(friend)}</span>
         <span>
           <strong>${escapeHTML(friend.displayName)}</strong>
           <small>${escapeHTML(friend.handle ? `@${friend.handle}` : friend.email)} &middot; ${escapeHTML(gridLabel)}</small>
@@ -7190,16 +7350,19 @@ function createFriendDetailMarkup(friend) {
   const stats = normalizePublicStats(friend.publicStats);
   const summary = stats.summary;
   const recent = Array.isArray(stats.recent) ? stats.recent : [];
+  const activityIsPublic = friend.activityPublic !== false && stats.recentPublic;
   const grid = stats.grid;
   const gridIsPublic = friend.gridVisibility === "public" && Array.isArray(grid?.days);
-  const recentMarkup = recent.length
-    ? recent.map((item) => `
+  const recentMarkup = !activityIsPublic
+    ? '<p class="friends-empty">Recent activity is private.</p>'
+    : recent.length
+      ? `<ul>${recent.map((item) => `
         <li>
           <strong>${escapeHTML(item.title)}</strong>
           <span>${escapeHTML(item.type)} &middot; ${escapeHTML(formatDateHeading(item.date))} &middot; +${formatPoints(Number(item.points) || 0)} xp</span>
         </li>
-      `).join("")
-    : "<li><strong>No recent activity shared yet</strong><span>When they finish tasks, it can appear here.</span></li>";
+      `).join("")}</ul>`
+      : '<p class="friends-empty">No recent activity shared yet.</p>';
 
   return `
     <div class="friend-detail-header">
@@ -7207,7 +7370,7 @@ function createFriendDetailMarkup(friend) {
       <button class="primary-button" data-friend-detail-action="invite" data-friend-id="${escapeHTML(friendId)}" type="button">Invite to task</button>
     </div>
     <div class="friend-hero">
-      <span class="profile-avatar profile-avatar-large" aria-hidden="true">${escapeHTML(getProfileInitials(friend.displayName))}</span>
+      <span class="profile-avatar profile-avatar-large" aria-hidden="true">${createFriendAvatarContent(friend)}</span>
       <div>
         <p class="eyebrow">Friend Profile</p>
         <h2>${escapeHTML(friend.displayName)}</h2>
@@ -7222,13 +7385,22 @@ function createFriendDetailMarkup(friend) {
     </div>
     <section class="friend-activity-card">
       <h3>Recent Activity</h3>
-      <ul>${recentMarkup}</ul>
+      ${recentMarkup}
     </section>
     <section class="friend-activity-card">
       <h3>Schedule Grid</h3>
       ${gridIsPublic ? createFriendPublicGrid(grid) : '<p class="friends-empty">Their schedule grid is private.</p>'}
     </section>
   `;
+}
+
+function createFriendAvatarContent(friend) {
+  const avatarDataUrl = normalizeAvatarDataUrl(friend?.avatarDataUrl || friend?.publicStats?.avatarDataUrl);
+  if (avatarDataUrl) {
+    return `<img src="${escapeHTML(avatarDataUrl)}" alt="" />`;
+  }
+
+  return escapeHTML(getProfileInitials(friend?.displayName));
 }
 
 function createFriendStat(label, value) {
@@ -7310,12 +7482,15 @@ async function lookupFriendDirectoryProfile(query) {
 
 function normalizeFriendFromDirectory(data) {
   const displayName = normalizeShedulrDisplayName(data?.display_name) || "Friend";
+  const publicStats = normalizePublicStats(data?.public_stats);
   return {
     userId: String(data?.user_id ?? ""),
     email: normalizeEmail(data?.email),
     displayName,
     handle: createShedulrHandle(data?.handle || displayName),
-    publicStats: normalizePublicStats(data?.public_stats),
+    avatarDataUrl: publicStats.avatarDataUrl,
+    activityPublic: publicStats.recentPublic,
+    publicStats,
     gridVisibility: data?.grid_visibility === "public" ? "public" : "private",
     updatedAt: String(data?.updated_at ?? ""),
   };
@@ -7330,12 +7505,15 @@ function normalizeFriends(value) {
   return (Array.isArray(value) ? value : [])
     .map((friend) => {
       const displayName = normalizeShedulrDisplayName(friend?.displayName || friend?.display_name) || "Friend";
+      const publicStats = normalizePublicStats(friend?.publicStats || friend?.public_stats);
       const normalized = {
         userId: String(friend?.userId || friend?.user_id || ""),
         email: normalizeEmail(friend?.email),
         displayName,
         handle: createShedulrHandle(friend?.handle || displayName),
-        publicStats: normalizePublicStats(friend?.publicStats || friend?.public_stats),
+        avatarDataUrl: normalizeAvatarDataUrl(friend?.avatarDataUrl || friend?.avatar_data_url || publicStats.avatarDataUrl),
+        activityPublic: friend?.activityPublic !== false && friend?.activity_public !== false && publicStats.recentPublic,
+        publicStats,
         gridVisibility: friend?.gridVisibility === "public" || friend?.grid_visibility === "public" ? "public" : "private",
         addedAt: String(friend?.addedAt || friend?.added_at || new Date().toISOString()),
         updatedAt: String(friend?.updatedAt || friend?.updated_at || ""),
@@ -7354,6 +7532,8 @@ function normalizePublicStats(value) {
   return {
     version: Number(stats.version) || 1,
     updatedAt: String(stats.updatedAt || stats.updated_at || ""),
+    avatarDataUrl: normalizeAvatarDataUrl(stats.avatarDataUrl || stats.avatar_data_url),
+    recentPublic: stats.recentPublic !== false && stats.recent_public !== false,
     summary: {
       todayXp: Math.max(Math.round(Number(summary.todayXp) || 0), 0),
       weekXp: Math.max(Math.round(Number(summary.weekXp) || 0), 0),
@@ -7918,8 +8098,10 @@ function createPublicProfileSnapshot() {
   const topType = getTopCompletedType(weekCompleted);
 
   return {
-    version: 1,
+    version: 2,
     updatedAt: new Date().toISOString(),
+    avatarDataUrl: normalizeAvatarDataUrl(getActiveProfile()?.avatarDataUrl),
+    recentPublic: Boolean(shareSettings.activityPublic),
     summary: {
       todayXp,
       weekXp,
@@ -7928,13 +8110,15 @@ function createPublicProfileSnapshot() {
       streakDays: getTopStreakDays(completedHistory),
       topType: topType.type,
     },
-    recent: completedHistory.slice(0, 8).map((task) => ({
-      title: task.title,
-      type: task.type,
-      date: task.occurrenceDate,
-      points: calculatePoints(task),
-      minutes: calculateCompletedMinutes(task),
-    })),
+    recent: shareSettings.activityPublic
+      ? completedHistory.slice(0, 8).map((task) => ({
+          title: task.title,
+          type: task.type,
+          date: task.occurrenceDate,
+          points: calculatePoints(task),
+          minutes: calculateCompletedMinutes(task),
+        }))
+      : [],
     grid: shareSettings.gridPublic ? createPublicGridSnapshot(occurrences) : { days: [] },
   };
 }
@@ -8208,6 +8392,7 @@ async function updateProfilePhoto(event) {
   try {
     const avatarDataUrl = await createProfilePhotoDataUrl(file);
     updateActiveProfile({ avatarDataUrl });
+    void syncPublicProfileSnapshot({ silent: true });
     setCloudStatus("Profile photo saved.");
   } catch (error) {
     console.error(error);
@@ -8219,6 +8404,7 @@ async function updateProfilePhoto(event) {
 
 function removeProfilePhoto() {
   updateActiveProfile({ avatarDataUrl: "" });
+  void syncPublicProfileSnapshot({ silent: true });
   setCloudStatus("Profile photo removed.");
 }
 
@@ -8579,6 +8765,7 @@ function normalizeShareSettings(value) {
     ...DEFAULT_SHARE_SETTINGS,
     ...(value && typeof value === "object" && !Array.isArray(value) ? value : {}),
     gridPublic: Boolean(value?.gridPublic),
+    activityPublic: value?.activityPublic !== false,
   };
 }
 

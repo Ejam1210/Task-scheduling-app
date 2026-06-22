@@ -945,6 +945,82 @@ p {
   padding-top: 12px;
 }
 
+.friend-share-card {
+  display: grid;
+  gap: 12px;
+  border-radius: 10px;
+  background: var(--quiet-control-bg);
+  padding: 12px;
+}
+
+.friend-share-heading strong,
+.friend-share-heading small {
+  display: block;
+}
+
+.friend-share-heading strong {
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.friend-share-heading small {
+  margin-top: 3px;
+}
+
+.friend-share-content {
+  display: grid;
+  grid-template-columns: 172px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.friend-qr-code {
+  display: grid;
+  width: 172px;
+  height: 172px;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.friend-qr-code canvas,
+.friend-qr-code img {
+  display: block;
+  width: 156px !important;
+  height: 156px !important;
+}
+
+.friend-qr-fallback {
+  color: #333333;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.friend-share-link {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.friend-share-link input {
+  font-size: 0.74rem;
+}
+
+.friend-share-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.friend-share-actions button {
+  min-height: 38px;
+  padding: 0 10px;
+  font-size: 0.76rem;
+}
+
 .friends-card-header {
   display: flex;
   align-items: start;
@@ -1663,10 +1739,12 @@ label {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   min-height: 46px;
   border: 1px solid #cbd4cf;
   border-radius: 7px;
   background: var(--field);
+  cursor: text;
   padding: 7px 10px;
 }
 
@@ -1676,12 +1754,17 @@ label {
 }
 
 .duration-part input {
+  width: 100%;
+  min-width: 52px;
+  min-height: 34px;
   border: 0;
   border-radius: 0;
   background: transparent;
-  padding: 0;
+  padding: 4px 2px;
   text-align: center;
   color: var(--ink);
+  cursor: text;
+  font-size: 1rem;
   box-shadow: none;
 }
 
@@ -1913,7 +1996,7 @@ textarea:disabled,
 }
 
 .field-row-four {
-  grid-template-columns: minmax(92px, 0.72fr) minmax(128px, 0.9fr) minmax(150px, 1fr) minmax(96px, 0.75fr);
+  grid-template-columns: minmax(210px, 1.35fr) minmax(118px, 0.8fr) minmax(138px, 1fr) minmax(96px, 0.7fr);
 }
 
 .field-row > label,
@@ -3763,6 +3846,28 @@ body[data-theme="dark"] .bottom-tabbar .tab-button.active .tab-count {
   font-weight: 900;
   padding: 12px 14px;
   text-align: center;
+}
+
+.completed-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.completed-task-actions .points-chip {
+  min-width: 0;
+  font-size: 0.96rem;
+  padding: 10px 12px;
+}
+
+.completed-undo-button {
+  width: auto;
+  min-width: 64px;
+  padding: 0 12px;
+  font-size: 0.82rem;
+  white-space: nowrap;
 }
 
 .task-actions {
@@ -6304,6 +6409,15 @@ body[data-theme="dark"] .task-form .weekday-picker label:has(input:checked) {
   .friend-add-form,
   .friend-card {
     grid-template-columns: 1fr;
+  }
+
+  .friend-share-content {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .friend-share-link {
+    width: 100%;
   }
 
   .friend-actions {

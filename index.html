@@ -150,6 +150,27 @@
                 </div>
                 <button class="secondary-button" id="refreshFriendsButton" type="button">Refresh</button>
               </div>
+              <section class="friend-share-card hidden" id="friendShareCard" aria-labelledby="friendShareTitle">
+                <div class="friend-share-heading">
+                  <div>
+                    <strong id="friendShareTitle">Share your profile</strong>
+                    <small>Scan the QR code or send your friend link.</small>
+                  </div>
+                </div>
+                <div class="friend-share-content">
+                  <div class="friend-qr-code" id="friendQrCode" aria-label="Friend profile QR code"></div>
+                  <div class="friend-share-link">
+                    <label>
+                      Friend link
+                      <input id="friendShareLink" type="url" readonly />
+                    </label>
+                    <div class="friend-share-actions">
+                      <button class="secondary-button" id="copyFriendLinkButton" type="button">Copy link</button>
+                      <button class="secondary-button" id="shareFriendLinkButton" type="button">Share</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
               <form class="friend-add-form" id="friendAddForm">
                 <label>
                   Add friend
@@ -160,6 +181,10 @@
               <label class="share-toggle">
                 <input id="publicGridToggle" type="checkbox" />
                 <span>Make my schedule grid public to friends</span>
+              </label>
+              <label class="share-toggle">
+                <input id="publicActivityToggle" type="checkbox" checked />
+                <span>Share my recent activity with friends</span>
               </label>
               <small id="friendsStatus">Friends can see your shared stats and activity after you log in.</small>
               <div class="friends-list" id="friendsList"></div>
@@ -525,6 +550,7 @@
                     <option value="Study">Study</option>
                     <option value="Health">Health</option>
                     <option value="Errand">Errand</option>
+                    <option value="Event">Event</option>
                     <option value="custom">Custom type...</option>
                   </select>
                   <input id="customTaskType" class="custom-type-input hidden" name="customType" type="text" maxlength="24" placeholder="New type name" />
@@ -828,6 +854,7 @@
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
